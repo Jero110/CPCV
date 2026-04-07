@@ -123,15 +123,27 @@ class CombinatorialPurgedKFold:
             purged_t1 = getTrainTimes(train_t1, testTimes)
 
             if self.pctEmbargo > 0:
-                # embargo after each contiguous test block
-                test_ends = []
+                # Find end of each contiguous test block, embargo the observations
+                # immediately after each block end — but only those obs, not everything.
                 sorted_test = np.sort(test_idx)
                 block_ends  = sorted_test[np.where(np.diff(sorted_test) > 1)[0]]
                 block_ends  = np.append(block_ends, sorted_test[-1])
+                embargoed_times = set()
                 for end in block_ends:
                     if end < len(X) - 1:
                         embargo_time = mbrg.iloc[end]
-                        purged_t1 = purged_t1[purged_t1.index < embargo_time]
+                        # next block start (or end of series)
+                        after_end = end + 1
+                        next_block_start = (
+                            sorted_test[np.searchsorted(sorted_test, after_end)]
+                            if after_end in sorted_test
+                            else len(X)
+                        )
+                        # embargo obs between block_end and embargo_time that are train
+                        for t in purged_t1.index:
+                            if X.index[after_end - 1] < t <= embargo_time:
+                                embargoed_times.add(t)
+                purged_t1 = purged_t1[~purged_t1.index.isin(embargoed_times)]
 
             final_train_idx = indices[X.index.isin(purged_t1.index)]
             yield raw_train_idx, test_idx, final_train_idx, test_groups
