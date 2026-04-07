@@ -71,35 +71,48 @@ def cvScore(clf, X: pd.DataFrame, y: pd.Series, t1: pd.Series,
 
 def get_paths(N: int = N_GROUPS, k: int = K_TEST) -> list:
     """
-    Returns list of paths. Each path is a list of split_ids (0-indexed)
-    whose test groups together cover all N groups exactly once.
-    De Prado (2018): phi = C(N,k)*k/N paths, each of length N/k splits.
+    Returns phi = C(N,k)*k/N paths where:
+      - Each path is a list of N/k split_ids covering all N groups exactly once
+      - No split_id is shared between paths (paths are disjoint)
+
+    Algorithm:
+      1. Enumerate all valid single-path partitions: sets of N/k combos
+         (splits) whose groups cover {0..N-1} exactly once.
+      2. From those, find a collection of n_paths partitions that are mutually
+         disjoint (no shared split index).
     """
     all_combos  = list(combinations(range(N), k))
     combo_to_id = {c: i for i, c in enumerate(all_combos)}
-    n_paths     = len(all_combos) * k // N
+    n_paths     = len(all_combos) * k // N   # phi
+    splits_per_path = N // k
 
-    def backtrack(remaining_groups, current_path):
+    # Step 1: enumerate all valid single-path partitions
+    # A valid partition = a set of splits_per_path combos whose groups partition {0..N-1}
+    def find_partitions(remaining_groups, min_combo_idx):
+        """Yield lists of combo-indices that partition remaining_groups."""
         if not remaining_groups:
-            return [current_path[:]]
-        results = []
-        for combo in all_combos:
+            yield []
+            return
+        for i in range(min_combo_idx, len(all_combos)):
+            combo = all_combos[i]
             if all(g in remaining_groups for g in combo):
-                new_remaining = remaining_groups - set(combo)
-                current_path.append(combo_to_id[combo])
-                results.extend(backtrack(new_remaining, current_path))
-                current_path.pop()
-        return results
+                for rest in find_partitions(remaining_groups - set(combo), i + 1):
+                    yield [i] + rest
 
-    all_paths = backtrack(set(range(N)), [])
-    # Deduplicate (sets of split_ids)
-    seen, unique = set(), []
-    for p in all_paths:
-        key = frozenset(p)
-        if key not in seen:
-            seen.add(key)
-            unique.append(sorted(p))
-    return unique[:n_paths]
+    all_partitions = list(find_partitions(set(range(N)), 0))
+
+    # Step 2: greedily select n_paths disjoint partitions
+    selected    = []
+    used_splits = set()
+    for partition in all_partitions:
+        p_set = frozenset(partition)
+        if not (p_set & used_splits):
+            selected.append(sorted(partition))
+            used_splits |= p_set
+            if len(selected) == n_paths:
+                break
+
+    return selected
 
 
 def run_cpcv(clf, X: pd.DataFrame, y: pd.Series, t1: pd.Series,
