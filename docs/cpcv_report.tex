@@ -605,6 +605,92 @@ leakage introduced by the practitioner.  The correct remedy is careful
 feature engineering review before CV, not a more sophisticated CV scheme.
 
 % ─────────────────────────────────────────────────────────────────────────────
+\section{OOS Sharpe Distributions by Validation Family}
+
+Collapsing each method to a single mean OOS Sharpe masks the variability
+across folds.  Figure~\ref{fig:distributions} shows the full distribution of
+OOS Sharpe values per validation variant within each family.  For the
+combinatorial family (CCV/CPCV), OOS Sharpe is computed at the \emph{path level}
+--- each path being a complete simulated backtest --- rather than at the fold
+level, which is the correct granularity per De Prado.
+
+\begin{figure}[H]
+  \centering
+  \includegraphics[width=\textwidth]{../plots/A_clean/09c_method_distributions.png}
+  \caption{OOS Sharpe distributions by validation family (Scenario A).
+    Violin + boxplot + individual points.  CCV/CPCV show path-level values
+    ($\phi=5$ paths); KFold and WalkForward show fold-level values.}
+  \label{fig:distributions}
+\end{figure}
+
+Key observations:
+\begin{itemize}
+  \item The KFold family (blue) shows the widest fold-to-fold spread: some folds
+    achieve OOS SR $>5$, others near zero.  Without purge, the IS/OOS boundary
+    is leaky, inflating some folds opportunistically.
+  \item The WalkForward family (red) is more stable across folds but shows
+    systematically lower medians once purge is applied --- consistent with the
+    expanding window including regime-change observations that hurt
+    generalization.
+  \item The CPCV family (green) produces fewer but more reliable data points
+    (5 paths).  The median is in a similar range to KFold+Purge but with the
+    formal guarantee of non-overlapping OOS coverage.
+\end{itemize}
+
+% ─────────────────────────────────────────────────────────────────────────────
+\section{Model Validation Map: Performance vs Overfitting Bias}
+
+Figure~\ref{fig:valmap} places each method in a two-dimensional space:
+\begin{itemize}
+  \item \textbf{x-axis}: OOS Sharpe (higher is better --- actual performance)
+  \item \textbf{y-axis}: $\Delta\SR = \SR_\IS - \SR_\OOS$ (lower is better ---
+    less optimistic bias)
+\end{itemize}
+
+The Pareto frontier connects methods that are not dominated simultaneously on
+both dimensions.
+
+\begin{figure}[H]
+  \centering
+  \includegraphics[width=0.85\textwidth]{../plots/A_clean/09b_model_validation_map.png}
+  \caption{Model Validation Map (Scenario A).  Each dot is one method.
+    The dashed line connects Pareto-efficient methods.  Ideal methods sit
+    in the bottom-right quadrant (high OOS SR, low degradation).}
+  \label{fig:valmap}
+\end{figure}
+
+Methods with high OOS SR but also high $\Delta\SR$ (top-right) are
+optimistically biased --- they appear to perform well out-of-sample but only
+because IS performance is even more inflated.  Methods on the Pareto frontier
+represent the best achievable trade-off between performance and calibration
+honesty.
+
+% ─────────────────────────────────────────────────────────────────────────────
+\section{Walk-Forward Purge Debug}
+
+Figure~\ref{fig:wf_debug} visualizes the purging mechanism for WalkForward
+fold~2, showing exactly which training observations are removed before the
+test window begins.
+
+\begin{figure}[H]
+  \centering
+  \includegraphics[width=\textwidth]{../plots/A_clean/debug_walkforward_fold_2_purge.png}
+  \caption{WalkForward fold 2 --- purge debug view (Scenario A).
+    Red dots/lines: observations removed from training because their label
+    window ($t \to t_1$) overlaps the test period.
+    Diamond marker: last kept training observation.
+    The dashed red lines show each purged observation's label horizon.}
+  \label{fig:wf_debug}
+\end{figure}
+
+Each red observation has a label end date $t_1(i)$ that falls inside the test
+window.  Including it in training would let the model learn from forward returns
+that overlap with the test set --- exactly the leakage that
+\texttt{getTrainTimes} is designed to prevent.  The number of removed
+observations varies by fold; in fold 2 the boundary overlaps are visible as a
+tight cluster immediately before the test start date.
+
+% ─────────────────────────────────────────────────────────────────────────────
 \section{Walk-Forward vs CPCV: Key Differences}
 
 \begin{center}

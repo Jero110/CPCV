@@ -41,7 +41,9 @@ def _run_scenario(label: str, prices, plot_subdir: str):
 
     # ── Comparison ────────────────────────────────────────────────────────────
     print(f"\n[{label}] Running all 9 methods comparison...")
-    comparison_df, all_folds_df = run_all_methods(X, y, t1, fwd_ret=fwd_ret)
+    comparison_df, all_folds_df, method_folds = run_all_methods(
+        X, y, t1, fwd_ret=fwd_ret, return_method_folds=True
+    )
 
     # ── Plots ─────────────────────────────────────────────────────────────────
     print(f"\n[{label}] Generating plots → {plot_subdir}")
@@ -60,6 +62,9 @@ def _run_scenario(label: str, prices, plot_subdir: str):
     plots.plot_comparison_metrics(comparison_df, out_dir=plot_subdir)
     plots.plot_comparison_delta(comparison_df, out_dir=plot_subdir)
     plots.plot_comparison_heatmap(comparison_df, out_dir=plot_subdir)
+    plots.plot_method_distributions(all_folds_df, method_folds=method_folds, out_dir=plot_subdir)
+    plots.plot_model_validation_map(comparison_df, out_dir=plot_subdir)
+    plots.plot_walkforward_purge_debug(prices, X, t1, fold_id=2, n_splits=N_GROUPS, out_dir=plot_subdir)
     plots.plot_oos_degradation(fold_results, all_folds_df, out_dir=plot_subdir)
     plots.plot_rank_logits(all_folds_df, out_dir=plot_subdir)
 

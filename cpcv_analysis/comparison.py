@@ -102,6 +102,7 @@ def _run_ccv_nopurge(X, y, n_groups, k, fwd_ret=None):
         oos_metrics = _metrics_from_pnl(pnl)
         folds.append({
             "fold_id": split_id,
+            "test_groups": test_groups,
             "accuracy": float(accuracy_score(y_te, y_hat)),
             "f1": float(f1_score(y_te, y_hat, zero_division=0)),
             "return_pct": oos_metrics["return_pct"],
@@ -116,11 +117,12 @@ def _run_ccv_nopurge(X, y, n_groups, k, fwd_ret=None):
             "is_sharpe": is_metrics["sharpe"],
             "n_train": len(use_tr),
             "n_test": len(test_idx),
+            "_oos_pnl": pnl,
         })
     return folds
 
 
-def run_all_methods(X, y, t1, fwd_ret=None):
+def run_all_methods(X, y, t1, fwd_ret=None, return_method_folds: bool = False):
     """
     Run all 9 validation methods on (X, y, t1).
     fwd_ret: actual forward log-returns; if provided, PnL is economically meaningful.
@@ -130,9 +132,11 @@ def run_all_methods(X, y, t1, fwd_ret=None):
     """
     rows = []
     all_folds = []
+    method_folds = {}
 
     def _collect(folds, method):
         rows.append(_summarize(folds, method))
+        method_folds[method] = folds
         for enum_id, f in enumerate(folds):
             if "accuracy" in f:
                 # Use fold_id (temporal index) as trial_id so that folds from
@@ -195,4 +199,6 @@ def run_all_methods(X, y, t1, fwd_ret=None):
     all_folds_df  = pd.DataFrame(all_folds)
     print("\n[comparison] Done.")
     print(comparison_df.round(4).to_string())
+    if return_method_folds:
+        return comparison_df, all_folds_df, method_folds
     return comparison_df, all_folds_df
