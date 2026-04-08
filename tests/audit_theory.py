@@ -36,7 +36,7 @@ results = []
 
 def check(label, passed, observed, expected, warn=False):
     ok = _result(label, passed, observed, expected, warn=warn)
-    results.append((label, ok))
+    results.append((label, ok, warn))
     return ok
 
 
@@ -262,10 +262,15 @@ if __name__ == "__main__":
     audit_block_d()
 
     print("\n══ Summary ══════════════════════════════════════════════════════")
-    passed = sum(1 for _, ok in results if ok)
+    passed = sum(1 for _, ok, _ in results if ok)
     total  = len(results)
-    for label, ok in results:
-        symbol = "✓" if ok else "✗"
+    for label, ok, warn in results:
+        if ok:
+            symbol = "✓"
+        elif warn:
+            symbol = "⚠"
+        else:
+            symbol = "✗"
         print(f"  [{symbol}] {label}")
     print(f"\n  {passed}/{total} checks passed")
     if passed == total:
