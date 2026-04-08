@@ -633,6 +633,99 @@ non-stationarity in the IS training set.  CPCV's combinatorial structure
 distributes this effect across all splits.
 
 % ─────────────────────────────────────────────────────────────────────────────
+\section{OOS Sharpe Distributions Under Regime Change (Scenario B)}
+
+Figure~\ref{fig:distributions_b} shows the full distribution of OOS Sharpe
+values per validation variant under the synthetic crash scenario, where a
+$-20\%$ drawdown is injected in June--July 2024.
+
+\begin{figure}[H]
+  \centering
+  \includegraphics[width=\textwidth]{../plots/B_crash/09c_method_distributions.png}
+  \caption{OOS Sharpe distributions by validation family under the synthetic
+    crash (Scenario B).  Violin + boxplot + individual data points.
+    KFold and WalkForward show fold-level values; CCV/CPCV show path-level
+    values ($\phi = 5$ paths).}
+  \label{fig:distributions_b}
+\end{figure}
+
+Three patterns stand out under the crash regime:
+
+\begin{itemize}
+  \item \textbf{KFold family (blue)} shows a wide spread with some folds
+    achieving high OOS SR and others deeply negative.  Without purging, folds
+    that happen to test \emph{after} the crash see an overfitted model trained
+    partly on crash dynamics --- resulting in erratic generalization.  Purge
+    tightens the distribution but does not eliminate the high-variance
+    characteristic.
+
+  \item \textbf{WalkForward family (red)} collapses to a narrow but
+    \emph{systematically negative} distribution once purge is applied.  The
+    expanding-window design forces the model to train on the crash window for
+    all subsequent folds; the model over-adapts to the drawdown and fails to
+    generalize in the recovery period.  This is the central limitation of
+    walk-forward that CPCV is designed to overcome: a single catastrophic
+    regime poisons every downstream fold.
+
+  \item \textbf{CCV/CPCV family (green)} produces only 5 path-level data points
+    but they are the most stable: median OOS SR remains positive across all
+    paths, and no path is catastrophically negative.  The combinatorial
+    structure means the crash period appears as the \emph{test window} in some
+    splits and as part of the \emph{training set} in others --- distributing
+    regime exposure symmetrically rather than letting it accumulate.
+\end{itemize}
+
+\textbf{Key conclusion:} Under regime change, walk-forward's sequential design
+is its biggest liability.  CPCV's path-level stability --- visible in the tight
+green distribution --- is the direct empirical justification for preferring
+combinatorial over sequential cross-validation when the data-generating process
+is non-stationary.
+
+% ─────────────────────────────────────────────────────────────────────────────
+\section{WalkForward Purge Mechanism: Visual Audit (Scenario B)}
+
+Figure~\ref{fig:wf_debug_b} shows fold~2 of WalkForward under the crash
+scenario.  The test window falls in the crash-recovery period
+(2024-09-06 $\to$ 2024-10-02), and the purge removes 5 observations
+immediately before the test start whose label horizon $t_1$ overlaps into
+the test window.
+
+\begin{figure}[H]
+  \centering
+  \includegraphics[width=\textwidth]{../plots/B_crash/debug_walkforward_fold_2_purge.png}
+  \caption{WalkForward fold~2, purge debug view under the crash (Scenario B).
+    Red dots: 5 observations removed from training (2024-08-29 to 2024-09-05)
+    because their 5-day forward label $t_1$ falls inside the test window.
+    Dashed red lines connect each purged observation to its $t_1$ endpoint.
+    Diamond marker: last kept training observation (2024-08-28).}
+  \label{fig:wf_debug_b}
+\end{figure}
+
+This figure makes the purge logic concrete:
+
+\begin{itemize}
+  \item Each purged observation (red dot) has a forward return window
+    $[t,\, t_1]$ that straddles the train/test boundary.  Including it in
+    training would mean the model learns from a return that is partially
+    realized \emph{during} the test period --- a direct label leakage.
+
+  \item The 5 removed observations fall inside the crash window (late August /
+    early September 2024), precisely when market dynamics are most
+    non-stationary.  Without purging, the model would learn from the tail of
+    the drawdown while being evaluated on the early recovery --- the most
+    misleading possible boundary condition.
+
+  \item The last kept training observation (diamond, 2024-08-28) has a $t_1$
+    that lands on or before the test start.  Its forward return is fully
+    realized before the test window opens, making it a clean training example.
+
+  \item With raw train size of 151 obs and purged train size of 146 obs, the
+    embargo removes only 5 observations in this fold.  The cost in training
+    data is minimal; the benefit is the elimination of boundary leakage at the
+    most sensitive regime transition in the dataset.
+\end{itemize}
+
+% ─────────────────────────────────────────────────────────────────────────────
 \section{Summary and Conclusions}
 
 \begin{enumerate}
