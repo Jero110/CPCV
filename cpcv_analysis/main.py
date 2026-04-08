@@ -102,7 +102,7 @@ def _run_scenario_leakage(label: str, prices, plot_subdir: str):
         sr_c = comparison_clean.loc[method, "OOS_SR"]
         sr_l = comparison_leaked.loc[method, "OOS_SR"]
         delta = sr_l - sr_c
-        flag = " ← EXPLOITS LEAKAGE" if delta > 0.1 else ""
+        flag = " ← LEAKAGE INFLATES OOS" if delta > 1.0 else ""
         print(f"  {method:<28}  {sr_c:>12.3f}  {sr_l:>13.3f}  {delta:>+7.3f}{flag}")
     print("=" * 60)
 

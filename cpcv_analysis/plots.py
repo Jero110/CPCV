@@ -569,7 +569,7 @@ def plot_leakage_comparison(comparison_clean: pd.DataFrame,
     ax1.set_xticks(x)
     ax1.set_xticklabels(methods, rotation=40, ha="right", fontsize=8)
     ax1.set_title("OOS Sharpe — Clean vs Leaked Features\n"
-                  "(KFold should jump up; CPCV should stay flat)")
+                  "(all methods inflate OOS SR when a future-label feature is present)")
     ax1.set_ylabel("Ann. Sharpe Ratio (OOS)")
 
     # Panel 2: OOS Accuracy
@@ -581,12 +581,12 @@ def plot_leakage_comparison(comparison_clean: pd.DataFrame,
     ax2.set_xticks(x)
     ax2.set_xticklabels(methods, rotation=40, ha="right", fontsize=8)
     ax2.set_title("OOS Accuracy — Clean vs Leaked Features\n"
-                  "(methods without purge should exploit leakage)")
+                  "(all methods exploit a leaked feature column present at test time)")
     ax2.set_ylabel("OOS Accuracy")
     ax2.yaxis.set_major_formatter(mticker.PercentFormatter(xmax=1, decimals=0))
 
     fig.suptitle("Scenario C — Feature Leakage Detection\n"
-                 "KFold exploits future label; CPCV is robust via purge + embargo",
+                 "All methods amplify OOS SR when a future-label feature is present in X",
                  fontsize=13, fontweight="bold", y=1.02)
     handles = [
         Patch(facecolor=BLUE, alpha=0.85, label="Clean features"),

@@ -24,7 +24,6 @@ XGB_PARAMS = dict(
     n_estimators  = 100,
     max_depth     = 3,
     learning_rate = 0.01,
-    use_label_encoder = False,
     eval_metric   = "logloss",
     random_state  = 42,
 )
