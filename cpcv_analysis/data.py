@@ -96,6 +96,24 @@ def build_features(prices: pd.DataFrame):
     return X, y, t1, prices
 
 
+def inject_leakage(X: pd.DataFrame, y: pd.Series,
+                   feature_name: str = "future_label") -> pd.DataFrame:
+    """
+    Inject perfect future-label leakage into X.
+
+    Adds a column `feature_name` = y.shift(-1) (the next period's label).
+    This simulates a common data-preparation mistake where a derived feature
+    accidentally includes information from the future.
+
+    The last observation gets 0 (no future label available).
+    """
+    X = X.copy()
+    future = y.shift(-1).fillna(0).astype(float)
+    X[feature_name] = future.values
+    print(f"[data] Leakage injected: column '{feature_name}' = y.shift(-1)")
+    return X
+
+
 def load_data():
     """Full pipeline: download → crash → features. Returns (X, y, t1, prices)."""
     prices = download_prices()

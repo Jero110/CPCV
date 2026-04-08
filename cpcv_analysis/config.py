@@ -11,6 +11,9 @@ CRASH_START     = "2024-06-03"   # first trading day of crash window
 CRASH_DURATION  = 21             # trading days (~1 calendar month)
 CRASH_MAGNITUDE = -0.20          # total return during window (−20 %)
 
+# ── Leakage scenario ───────────────────────────────────────────────────────
+LEAKAGE_FEATURE_NAME = "future_label"   # name of the injected leakage column
+
 # ── CPCV ───────────────────────────────────────────────────────────────────
 N_GROUPS    = 6
 K_TEST      = 2
