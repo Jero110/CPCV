@@ -7,6 +7,7 @@ import os
 import numpy as np
 import pandas as pd
 import matplotlib.pyplot as plt
+import matplotlib.ticker as mticker
 from scipy import stats
 from cpcv_analysis.config import PLOT_DIR, FIGSIZE
 
@@ -215,3 +216,60 @@ def plot_rank_logits(comparison_df: pd.DataFrame):
     ax.set_title("Histogram of Rank Logits — Probability of Backtest Overfit")
     ax.legend()
     _save(fig, "11_rank_logits.png")
+
+
+# ── 12 Leakage comparison ─────────────────────────────────────────────────────
+def plot_leakage_comparison(comparison_clean: pd.DataFrame,
+                            comparison_leaked: pd.DataFrame,
+                            out_dir: str = "plots/"):
+    """
+    Side-by-side bar chart: OOS Sharpe and OOS Accuracy for each method,
+    clean features vs leaked features.
+
+    comparison_clean, comparison_leaked: DataFrames with index=method,
+    columns including OOS_SR and accuracy (output of run_all_methods).
+    """
+    methods = comparison_clean.index.tolist()
+    x = np.arange(len(methods))
+    w = 0.35
+
+    fig, (ax1, ax2) = plt.subplots(1, 2, figsize=(16, 5))
+
+    # Panel 1: OOS Sharpe
+    ax1.bar(x - w/2, comparison_clean["OOS_SR"].values,  w,
+            label="Clean features", color=ACCENT, alpha=0.85, zorder=3)
+    ax1.bar(x + w/2, comparison_leaked["OOS_SR"].values, w,
+            label="Leaked features", color=RED,  alpha=0.85, zorder=3)
+    ax1.axhline(0, color=GRAY, lw=0.7)
+    ax1.set_xticks(x)
+    ax1.set_xticklabels(methods, rotation=40, ha="right", fontsize=8)
+    ax1.set_title("OOS Sharpe — Clean vs Leaked Features\n"
+                  "(KFold should jump up; CPCV should stay flat)")
+    ax1.set_ylabel("Ann. Sharpe Ratio (OOS)")
+    ax1.legend(fontsize=8)
+
+    # Panel 2: OOS Accuracy
+    ax2.bar(x - w/2, comparison_clean["accuracy"].values,  w,
+            label="Clean features", color=ACCENT, alpha=0.85, zorder=3)
+    ax2.bar(x + w/2, comparison_leaked["accuracy"].values, w,
+            label="Leaked features", color=RED,  alpha=0.85, zorder=3)
+    ax2.axhline(0.5, color=GRAY, ls="--", lw=0.8, label="Random baseline (50%)")
+    ax2.set_xticks(x)
+    ax2.set_xticklabels(methods, rotation=40, ha="right", fontsize=8)
+    ax2.set_title("OOS Accuracy — Clean vs Leaked Features\n"
+                  "(methods without purge should exploit leakage)")
+    ax2.set_ylabel("OOS Accuracy")
+    ax2.yaxis.set_major_formatter(mticker.PercentFormatter(xmax=1, decimals=0))
+    ax2.legend(fontsize=8)
+
+    fig.suptitle("Scenario C — Feature Leakage Detection\n"
+                 "KFold exploits future label; CPCV is robust via purge + embargo",
+                 fontsize=13, fontweight="bold", y=1.02)
+    fig.tight_layout()
+
+    os.makedirs(out_dir, exist_ok=True)
+    name = "12_leakage_comparison.png"
+    path = os.path.join(out_dir, name)
+    fig.savefig(path, dpi=150, bbox_inches="tight")
+    print(f"[plots] Saved → {path}")
+    plt.close(fig)
