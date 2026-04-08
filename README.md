@@ -34,14 +34,19 @@ CPCV/
 
 ---
 
-## Quickstart
+## Setup
 
-All commands use the `rappi` conda environment.
+```bash
+conda env create -f environment.yml
+conda activate cpcv
+```
+
+## Quickstart
 
 ### Run full analysis (Scenarios A, B, C)
 
 ```bash
-conda run -n rappi python3 -m cpcv_analysis.main
+python -m cpcv_analysis.main
 ```
 
 Outputs plots to `plots/A_clean/`, `plots/B_crash/`, `plots/C_leakage/`.
@@ -49,17 +54,17 @@ Outputs plots to `plots/A_clean/`, `plots/B_crash/`, `plots/C_leakage/`.
 ### Run tests
 
 ```bash
-conda run -n rappi python3 -m pytest tests/ -v
+pytest tests/ -v
 ```
 
 Individual test files:
 
 ```bash
 # Splitter correctness (purge, embargo, CPCV structure, path properties)
-conda run -n rappi python3 -m pytest tests/test_splitters.py -v
+pytest tests/test_splitters.py -v
 
 # Leakage detection behavior
-conda run -n rappi python3 -m pytest tests/test_leakage.py -v
+pytest tests/test_leakage.py -v
 ```
 
 ### Run a single scenario
