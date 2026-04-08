@@ -8,6 +8,8 @@ import numpy as np
 import pandas as pd
 import matplotlib.pyplot as plt
 import matplotlib.ticker as mticker
+from matplotlib.lines import Line2D
+from matplotlib.patches import Patch
 from scipy import stats
 from cpcv_analysis.config import FIGSIZE
 
@@ -556,7 +558,7 @@ def plot_leakage_comparison(comparison_clean: pd.DataFrame,
     x = np.arange(len(methods))
     w = 0.35
 
-    fig, (ax1, ax2) = plt.subplots(1, 2, figsize=(16, 5))
+    fig, (ax1, ax2) = plt.subplots(1, 2, figsize=(18, 5))
 
     # Panel 1: OOS Sharpe
     ax1.bar(x - w/2, comparison_clean["OOS_SR"].values,  w,
@@ -569,7 +571,6 @@ def plot_leakage_comparison(comparison_clean: pd.DataFrame,
     ax1.set_title("OOS Sharpe — Clean vs Leaked Features\n"
                   "(KFold should jump up; CPCV should stay flat)")
     ax1.set_ylabel("Ann. Sharpe Ratio (OOS)")
-    ax1.legend(fontsize=8)
 
     # Panel 2: OOS Accuracy
     ax2.bar(x - w/2, comparison_clean["accuracy"].values,  w,
@@ -583,10 +584,16 @@ def plot_leakage_comparison(comparison_clean: pd.DataFrame,
                   "(methods without purge should exploit leakage)")
     ax2.set_ylabel("OOS Accuracy")
     ax2.yaxis.set_major_formatter(mticker.PercentFormatter(xmax=1, decimals=0))
-    ax2.legend(fontsize=8)
 
     fig.suptitle("Scenario C — Feature Leakage Detection\n"
                  "KFold exploits future label; CPCV is robust via purge + embargo",
                  fontsize=13, fontweight="bold", y=1.02)
-    fig.tight_layout()
+    handles = [
+        Patch(facecolor=BLUE, alpha=0.85, label="Clean features"),
+        Patch(facecolor=RED, alpha=0.85, label="Leaked features"),
+        Line2D([0], [0], color=GRAY, ls="--", lw=0.8, label="Random baseline (50%)"),
+    ]
+    fig.legend(handles=handles, loc="center left", bbox_to_anchor=(0.84, 0.5),
+               frameon=True, fontsize=9)
+    fig.tight_layout(rect=(0, 0, 0.82, 1))
     _save(fig, "12_leakage_comparison.png", out_dir)
