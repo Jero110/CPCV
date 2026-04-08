@@ -1,6 +1,11 @@
 """
 Orchestrates the full CPCV analysis. Run with:
     conda run -n rappi python3 -m cpcv_analysis.main
+
+Two scenarios:
+  Scenario A — SPY 2024 clean (no synthetic crash)
+  Scenario B — SPY 2024 with synthetic 20% crash injected
+  Scenario C — Feature leakage detection (clean vs leaked features)
 """
 import os
 import pandas as pd
@@ -10,11 +15,64 @@ from cpcv_analysis.config import (
     N_GROUPS, K_TEST, PCT_EMBARGO, XGB_PARAMS, CRASH_START, CRASH_DURATION,
     LEAKAGE_FEATURE_NAME,
 )
-from cpcv_analysis.data import load_data, inject_leakage, build_features
+from cpcv_analysis.data import download_prices, inject_crash, build_features, inject_leakage
 from cpcv_analysis.splitters import CombinatorialPurgedKFold
 from cpcv_analysis.cv_runner import run_cpcv
 from cpcv_analysis.comparison import run_all_methods
 from cpcv_analysis import plots
+
+
+def _run_scenario(label: str, prices, plot_subdir: str):
+    """Run full analysis for one price scenario. Saves plots to plot_subdir."""
+    os.makedirs(plot_subdir, exist_ok=True)
+
+    X, y, t1, _, fwd_ret = build_features(prices)
+
+    # ── CPCV ──────────────────────────────────────────────────────────────────
+    print(f"\n[{label}] Running CPCV...")
+    clf  = XGBClassifier(**XGB_PARAMS)
+    cpcv = CombinatorialPurgedKFold(N_GROUPS, K_TEST, t1, PCT_EMBARGO)
+    fold_results, path_results, oos_by_split = run_cpcv(clf, X, y, t1, cpcv, fwd_ret=fwd_ret)
+
+    split_table = pd.DataFrame([
+        {"split_id": fr["fold_id"], "test_groups": fr["test_groups"]}
+        for fr in fold_results
+    ])
+
+    # ── Comparison ────────────────────────────────────────────────────────────
+    print(f"\n[{label}] Running all 9 methods comparison...")
+    comparison_df, all_folds_df = run_all_methods(X, y, t1, fwd_ret=fwd_ret)
+
+    # ── Plots ─────────────────────────────────────────────────────────────────
+    print(f"\n[{label}] Generating plots → {plot_subdir}")
+
+    crash_idx = prices.index.searchsorted(pd.Timestamp(CRASH_START))
+    crash_end = min(crash_idx + CRASH_DURATION, len(prices) - 1)
+
+    plots.plot_spy_prices(prices, CRASH_START, crash_end,
+                          X=X, N_groups=N_GROUPS, out_dir=plot_subdir,
+                          highlight_groups_on_price=True)
+    plots.plot_split_matrix(split_table, N_GROUPS, out_dir=plot_subdir)
+    plots.plot_path_example(fold_results, path_results, N_GROUPS, path_id=0, out_dir=plot_subdir)
+    plots.plot_is_oos_per_split(fold_results, out_dir=plot_subdir)
+    plots.plot_metrics_per_path(path_results, out_dir=plot_subdir)
+    plots.plot_equity_curves(path_results, out_dir=plot_subdir)
+    plots.plot_comparison_metrics(comparison_df, out_dir=plot_subdir)
+    plots.plot_comparison_delta(comparison_df, out_dir=plot_subdir)
+    plots.plot_comparison_heatmap(comparison_df, out_dir=plot_subdir)
+    plots.plot_oos_degradation(fold_results, all_folds_df, out_dir=plot_subdir)
+    plots.plot_rank_logits(all_folds_df, out_dir=plot_subdir)
+
+    # ── Summary ───────────────────────────────────────────────────────────────
+    print(f"\n[{label}] Summary")
+    print("=" * 60)
+    cpcv_is  = pd.DataFrame(fold_results)["is_sharpe"].mean()
+    cpcv_oos = pd.DataFrame(path_results)["sharpe"].mean()
+    print(f"  CPCV IS  SR (mean splits): {cpcv_is:.4f}")
+    print(f"  CPCV OOS SR (mean paths):  {cpcv_oos:.4f}")
+    print(f"  Delta SR:                  {cpcv_is - cpcv_oos:.4f}")
+    print(f"  Plots saved to: {plot_subdir}")
+    print("=" * 60)
 
 
 def _run_scenario_leakage(label: str, prices, plot_subdir: str):
@@ -24,8 +82,7 @@ def _run_scenario_leakage(label: str, prices, plot_subdir: str):
     """
     os.makedirs(plot_subdir, exist_ok=True)
 
-    X, y, t1, _ = build_features(prices)
-    fwd_ret = None
+    X, y, t1, _, fwd_ret = build_features(prices)
     X_leaked = inject_leakage(X, y, feature_name=LEAKAGE_FEATURE_NAME)
 
     print(f"\n[{label}] Running all methods on CLEAN features...")
@@ -52,64 +109,33 @@ def _run_scenario_leakage(label: str, prices, plot_subdir: str):
 
 def main():
     print("=" * 60)
-    print("  CPCV Tesis Analysis")
+    print("  CPCV Tesis Analysis — Scenarios A, B & C")
     print("=" * 60)
 
-    # ── 1. Data ────────────────────────────────────────────────────────────
-    print("\n[1/5] Loading data...")
-    X, y, t1, prices = load_data()
+    # Download once
+    print("\n[0] Downloading SPY prices...")
+    prices_clean = download_prices()
 
-    # ── 2. CPCV run ────────────────────────────────────────────────────────
-    print("\n[2/5] Running CPCV...")
-    clf  = XGBClassifier(**XGB_PARAMS)
-    cpcv = CombinatorialPurgedKFold(N_GROUPS, K_TEST, t1, PCT_EMBARGO)
-    fold_results, path_results, oos_by_split = run_cpcv(clf, X, y, t1, cpcv)
+    # Scenario A: clean SPY
+    print("\n" + "=" * 60)
+    print("  SCENARIO A: SPY 2024 (no crash)")
+    print("=" * 60)
+    _run_scenario("Scenario A", prices_clean, "plots/A_clean")
 
-    # Build split_table for split matrix plot
-    split_table = pd.DataFrame([
-        {"split_id": fr["fold_id"], "test_groups": fr["test_groups"]}
-        for fr in fold_results
-    ])
+    # Scenario B: with synthetic crash
+    print("\n" + "=" * 60)
+    print("  SCENARIO B: SPY 2024 + synthetic crash (−20%)")
+    print("=" * 60)
+    prices_crash = inject_crash(prices_clean)
+    _run_scenario("Scenario B", prices_crash, "plots/B_crash")
 
-    # ── 3. Comparison ──────────────────────────────────────────────────────
-    print("\n[3/5] Running all 9 methods comparison...")
-    comparison_df, _ = run_all_methods(X, y, t1)
-
-    # ── 4. Plots ───────────────────────────────────────────────────────────
-    print("\n[4/5] Generating plots...")
-
-    # Crash window end index for shading
-    crash_idx = prices.index.searchsorted(pd.Timestamp(CRASH_START))
-    crash_end = min(crash_idx + CRASH_DURATION, len(prices) - 1)
-
-    plots.plot_spy_prices(prices, CRASH_START, crash_end)
-    plots.plot_split_matrix(split_table, N_GROUPS)
-    plots.plot_is_oos_per_split(fold_results)
-    plots.plot_equity_curves(path_results)
-    plots.plot_comparison_sharpe(comparison_df)
-    plots.plot_comparison_delta(comparison_df)
-    plots.plot_comparison_accuracy_f1(comparison_df)
-    plots.plot_comparison_return_pct(comparison_df)
-    plots.plot_comparison_heatmap(comparison_df)
-    plots.plot_oos_degradation(fold_results)
-    plots.plot_rank_logits(comparison_df)
-
-    # ── 5. Scenario C: leakage detection ──────────────────────────────────
+    # Scenario C: leakage detection
     print("\n" + "=" * 60)
     print("  SCENARIO C: Leakage detection (clean vs leaked features)")
     print("=" * 60)
-    _run_scenario_leakage("Scenario C", prices, "plots/C_leakage")
+    _run_scenario_leakage("Scenario C", prices_clean, "plots/C_leakage")
 
-    # ── 6. Summary ─────────────────────────────────────────────────────────
-    print("\n[6/6] Summary")
-    print("=" * 60)
-    cpcv_is  = pd.DataFrame(fold_results)["is_sharpe"].mean()
-    cpcv_oos = pd.DataFrame(path_results)["sharpe"].mean()
-    print(f"  CPCV IS  SR (mean splits): {cpcv_is:.4f}")
-    print(f"  CPCV OOS SR (mean paths):  {cpcv_oos:.4f}")
-    print(f"  Delta SR:                  {cpcv_is - cpcv_oos:.4f}")
-    print("\nAll plots saved to plots/")
-    print("=" * 60)
+    print("\nDone. All plots saved to plots/A_clean/, plots/B_crash/, plots/C_leakage/")
 
 
 if __name__ == "__main__":

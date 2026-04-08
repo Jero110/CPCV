@@ -1,4 +1,5 @@
 # cpcv_analysis/data.py
+import os
 import numpy as np
 import pandas as pd
 import yfinance as yf
@@ -7,13 +8,56 @@ from cpcv_analysis.config import (
     CRASH_START, CRASH_DURATION, CRASH_MAGNITUDE,
 )
 
+_CACHE_DIR = os.path.join("data_cache")
+_CACHE_PATH = os.path.join(_CACHE_DIR, f"{TICKER}_{START}_{END}.csv")
 
-def download_prices() -> pd.DataFrame:
-    """Download SPY daily OHLCV via yfinance."""
-    df = yf.download(TICKER, start=START, end=END, auto_adjust=True, progress=False)
+
+def _normalize_ohlcv(df: pd.DataFrame) -> pd.DataFrame:
+    """Normalize yfinance output to a clean OHLCV DataFrame."""
+    df = df.copy()
     df.index = pd.to_datetime(df.index)
     df.columns = df.columns.get_level_values(0) if isinstance(df.columns, pd.MultiIndex) else df.columns
-    return df[["Open", "High", "Low", "Close", "Volume"]].dropna()
+    df = df[["Open", "High", "Low", "Close", "Volume"]].dropna()
+    return df.sort_index()
+
+
+def _save_prices_cache(df: pd.DataFrame) -> None:
+    os.makedirs(_CACHE_DIR, exist_ok=True)
+    df.to_csv(_CACHE_PATH, index_label="Date")
+
+
+def _load_prices_cache() -> pd.DataFrame:
+    if not os.path.exists(_CACHE_PATH):
+        raise FileNotFoundError(_CACHE_PATH)
+    df = pd.read_csv(_CACHE_PATH, parse_dates=["Date"], index_col="Date")
+    if df.empty:
+        raise RuntimeError(f"Cached price file is empty: {_CACHE_PATH}")
+    return df[["Open", "High", "Low", "Close", "Volume"]].sort_index()
+
+
+def download_prices() -> pd.DataFrame:
+    """Download SPY daily OHLCV via yfinance, falling back to local cache if needed."""
+    try:
+        raw = yf.download(TICKER, start=START, end=END, auto_adjust=True, progress=False)
+        if raw is None or raw.empty:
+            raise RuntimeError("yfinance returned an empty DataFrame")
+        df = _normalize_ohlcv(raw)
+        if df.empty:
+            raise RuntimeError("downloaded OHLCV is empty after normalization")
+        _save_prices_cache(df)
+        print(f"[data] Downloaded {TICKER} prices and refreshed cache → {_CACHE_PATH}")
+        return df
+    except Exception as exc:
+        print(f"[data] Download failed for {TICKER} ({exc}). Trying local cache...")
+        try:
+            df = _load_prices_cache()
+            print(f"[data] Loaded cached {TICKER} prices → {_CACHE_PATH}")
+            return df
+        except Exception as cache_exc:
+            raise RuntimeError(
+                f"Failed to download {TICKER} prices for {START} to {END}, "
+                f"and no usable local cache was found at {_CACHE_PATH}."
+            ) from cache_exc
 
 
 def inject_crash(prices: pd.DataFrame) -> pd.DataFrame:
@@ -85,15 +129,17 @@ def build_features(prices: pd.DataFrame):
     )
 
     feature_cols = ["rsi_14", "momentum_20", "rvol_20", "ret_lag1", "ret_lag5", "vol_norm"]
-    df = df.dropna(subset=feature_cols + ["target"])
+    df["fwd_ret"] = fwd_ret
+    df = df.dropna(subset=feature_cols + ["target", "fwd_ret"])
     t1 = t1.loc[df.index]
 
-    X = df[feature_cols]
-    y = df["target"]
+    X      = df[feature_cols]
+    y      = df["target"]
+    fwd_r  = df["fwd_ret"]   # actual forward log-return for PnL calculation
 
     print(f"[data] Observations: {len(X)}  |  Class balance: {y.mean():.1%} up")
     print(f"[data] Feature shape: {X.shape}  |  Date range: {X.index[0].date()} → {X.index[-1].date()}")
-    return X, y, t1, prices
+    return X, y, t1, prices, fwd_r
 
 
 def inject_leakage(X: pd.DataFrame, y: pd.Series,
@@ -115,7 +161,7 @@ def inject_leakage(X: pd.DataFrame, y: pd.Series,
 
 
 def load_data():
-    """Full pipeline: download → crash → features. Returns (X, y, t1, prices)."""
+    """Full pipeline: download → crash → features. Returns (X, y, t1, prices, fwd_ret)."""
     prices = download_prices()
     prices = inject_crash(prices)
     return build_features(prices)
