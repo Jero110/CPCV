@@ -9,3 +9,4 @@ docs/*.log
 docs/*.out
 docs/*.toc
 .claude/
+McOverfit/cache/*.pkl
