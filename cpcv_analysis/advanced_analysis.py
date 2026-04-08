@@ -26,7 +26,7 @@ def oos_degradation(fold_results: list) -> pd.DataFrame:
     return pd.DataFrame(rows)
 
 
-def rank_logits(comparison_df: pd.DataFrame) -> tuple:
+def rank_logits(comparison_df: pd.DataFrame, n_trials: int = 1000, random_state=None) -> tuple:
     """
     Compute rank logits and Prob[Overfit] from comparison_df.
 

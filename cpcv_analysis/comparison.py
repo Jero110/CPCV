@@ -89,7 +89,7 @@ def _run_ccv_nopurge(X, y, n_groups, k):
     return folds
 
 
-def run_all_methods(X, y, t1) -> pd.DataFrame:
+def run_all_methods(X, y, t1, fwd_ret=None) -> pd.DataFrame:
     """
     Run all 9 validation methods on (X, y, t1).
     Returns comparison_df: one row per method, columns = IS_SR, OOS_SR, Delta_SR, accuracy, f1, return_pct.
@@ -148,4 +148,4 @@ def run_all_methods(X, y, t1) -> pd.DataFrame:
     comparison_df = pd.DataFrame(rows).set_index("method")
     print("\n[comparison] Done.")
     print(comparison_df.round(4).to_string())
-    return comparison_df
+    return comparison_df, comparison_df

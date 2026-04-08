@@ -116,7 +116,7 @@ def get_paths(N: int = N_GROUPS, k: int = K_TEST) -> list:
 
 
 def run_cpcv(clf, X: pd.DataFrame, y: pd.Series, t1: pd.Series,
-             cpcv_splitter) -> tuple:
+             cpcv_splitter, verbose: bool = True, fwd_ret=None) -> tuple:
     """
     Full CPCV run.
     Returns:
@@ -132,7 +132,8 @@ def run_cpcv(clf, X: pd.DataFrame, y: pd.Series, t1: pd.Series,
             cpcv_splitter.split(X)):
 
         if len(final_tr) < 10 or len(test_idx) < 5:
-            print(f"  [CPCV] split {split_id}: skipped (too few obs)")
+            if verbose:
+                print(f"  [CPCV] split {split_id}: skipped (too few obs)")
             continue
 
         X_tr, y_tr = X.iloc[final_tr], y.iloc[final_tr]
@@ -168,7 +169,8 @@ def run_cpcv(clf, X: pd.DataFrame, y: pd.Series, t1: pd.Series,
     paths = get_paths(N_GROUPS, K_TEST)
     path_results = []
 
-    print("\n[CPCV] Path assignment:")
+    if verbose:
+        print("\n[CPCV] Path assignment:")
     for pid, split_ids in enumerate(paths):
         # Map split_ids to actual fold results (by fold_id)
         fold_map = {fr["fold_id"]: fr for fr in fold_results}
@@ -181,12 +183,13 @@ def run_cpcv(clf, X: pd.DataFrame, y: pd.Series, t1: pd.Series,
         path_pnl = pd.concat([oos_by_split[sid] for sid in valid_ids]).sort_index()
 
         # Print path composition for debuggability
-        for sid in valid_ids:
-            fr = fold_map[sid]
-            pnl_s = oos_by_split[sid]
-            print(f"  Path {pid} | split {sid} | groups {fr['test_groups']} | "
-                  f"dates {pnl_s.index[0].date()} → {pnl_s.index[-1].date()} | "
-                  f"sharpe={fr['sharpe']:.3f}")
+        if verbose:
+            for sid in valid_ids:
+                fr = fold_map[sid]
+                pnl_s = oos_by_split[sid]
+                print(f"  Path {pid} | split {sid} | groups {fr['test_groups']} | "
+                      f"dates {pnl_s.index[0].date()} → {pnl_s.index[-1].date()} | "
+                      f"sharpe={fr['sharpe']:.3f}")
 
         path_results.append({
             "path_id":    pid,

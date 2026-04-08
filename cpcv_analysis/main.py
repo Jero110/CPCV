@@ -36,7 +36,7 @@ def main():
 
     # ── 3. Comparison ──────────────────────────────────────────────────────
     print("\n[3/5] Running all 9 methods comparison...")
-    comparison_df = run_all_methods(X, y, t1)
+    comparison_df, _ = run_all_methods(X, y, t1)
 
     # ── 4. Plots ───────────────────────────────────────────────────────────
     print("\n[4/5] Generating plots...")
