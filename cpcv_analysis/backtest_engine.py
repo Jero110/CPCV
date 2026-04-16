@@ -400,3 +400,73 @@ def kfold_sharpe_dist(clf, X, y, t1, fwd_ret,
 
     label = "purged_kfold" if purged else "kfold"
     return pd.Series(sharpes, name=label)
+
+
+def compare_methods(clf, X, y, t1, fwd_ret,
+                    n_splits=6,
+                    n_groups=N_GROUPS, k_test=K_TEST,
+                    pct_embargo=PCT_EMBARGO) -> dict:
+    """
+    Corre los 5 métodos sobre los mismos datos y modelo.
+    Devuelve dict con pd.Series de Sharpes por método.
+    Produce un plot con las 5 distribuciones y una tabla resumen.
+
+    Métodos:
+      CPCV              — sharpe por path
+      WalkForward       — sharpe por fold (sin purge)
+      PurgedWalkForward — sharpe por fold (con purge+embargo)
+      KFold             — sharpe por fold (sklearn, sin purge)
+      PurgedKFold       — sharpe por fold (De Prado)
+    """
+    results = {
+        "CPCV": cpcv_sharpe_dist(
+            clf, X, y, t1, fwd_ret, n_groups, k_test, pct_embargo),
+        "WalkForward": wf_sharpe_dist(
+            clf, X, y, t1, fwd_ret, purged=False, n_splits=n_splits),
+        "PurgedWalkForward": wf_sharpe_dist(
+            clf, X, y, t1, fwd_ret, purged=True, n_splits=n_splits,
+            pct_embargo=pct_embargo),
+        "KFold": kfold_sharpe_dist(
+            clf, X, y, t1, fwd_ret, purged=False, n_splits=n_splits),
+        "PurgedKFold": kfold_sharpe_dist(
+            clf, X, y, t1, fwd_ret, purged=True, n_splits=n_splits,
+            pct_embargo=pct_embargo),
+    }
+
+    # ── Plot ─────────────────────────────────────────────────────────────────
+    colors = {
+        "CPCV":              "#2ecc71",
+        "WalkForward":       "#3498db",
+        "PurgedWalkForward": "#1abc9c",
+        "KFold":             "#e74c3c",
+        "PurgedKFold":       "#e67e22",
+    }
+    fig, axes = plt.subplots(1, 5, figsize=(18, 4), sharey=False)
+    for ax, (name, sharpes) in zip(axes, results.items()):
+        ax.hist(sharpes.values, bins=max(3, len(sharpes) // 2),
+                color=colors[name], edgecolor="white", alpha=0.85)
+        ax.axvline(sharpes.mean(), color="black", linewidth=1.5,
+                   linestyle="--", label=f"μ={sharpes.mean():.2f}")
+        ax.axvline(0, color="gray", linewidth=1)
+        ax.set_title(name, fontsize=10)
+        ax.set_xlabel("Sharpe", fontsize=8)
+        ax.legend(fontsize=8)
+    fig.suptitle("Distribución de Sharpes OOS por método CV", fontsize=13)
+    plt.tight_layout()
+    plt.show()
+
+    # Tabla resumen
+    summary = pd.DataFrame({
+        name: {
+            "n_units":      len(s),
+            "mean_SR":      round(s.mean(), 3),
+            "std_SR":       round(s.std(), 3),
+            "min_SR":       round(s.min(), 3),
+            "max_SR":       round(s.max(), 3),
+            "pct_positive": round((s > 0).mean(), 2),
+        }
+        for name, s in results.items()
+    }).T
+    display(summary)
+
+    return results
