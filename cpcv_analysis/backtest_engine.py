@@ -19,6 +19,7 @@ from cpcv_analysis.splitters import (
 )
 from cpcv_analysis.cv_runner import get_paths, run_cpcv
 from cpcv_analysis.config import N_GROUPS, K_TEST, PCT_EMBARGO
+from IPython.display import display
 
 
 # ── helpers ──────────────────────────────────────────────────────────────────
@@ -139,3 +140,180 @@ def _get_split_detail(split_info, X, y, fwd_ret, is_pnl, oos_pnl,
     oos_df.index.name = "date"
 
     return is_df, oos_df
+
+
+def _plot_split_timeline(split_info, X):
+    """Bar horizontal con train=azul, test=naranja, embargo=rojo."""
+    n = len(X)
+    colors = ["#3498db"] * n  # default train
+    for idx in split_info["_test_idx"]:
+        colors[idx] = "#e67e22"
+    for idx in split_info["_embargoed_idx"]:
+        colors[idx] = "#e74c3c"
+
+    fig, ax = plt.subplots(figsize=(14, 1.5))
+    ax.bar(range(n), [1] * n, color=colors, width=1.0, linewidth=0)
+    ax.set_yticks([])
+    ax.set_xlabel("Índice de observación")
+    ax.set_title(
+        f"Split {split_info['split_id']}  test_groups={split_info['test_groups']}  "
+        f"n_train={split_info['n_train']}  n_test={split_info['n_test']}  "
+        f"n_embargoed={split_info['n_embargoed']}"
+    )
+    legend = [
+        mpatches.Patch(color="#3498db", label="Train"),
+        mpatches.Patch(color="#e67e22", label="Test"),
+        mpatches.Patch(color="#e74c3c", label="Embargo/Purged"),
+    ]
+    ax.legend(handles=legend, loc="upper right", fontsize=8)
+    plt.tight_layout()
+    plt.show()
+
+
+def _plot_sharpe_dist(sharpes: pd.Series, title: str = "Distribución de Sharpes"):
+    """Histograma simple de una Serie de Sharpes."""
+    fig, ax = plt.subplots(figsize=(8, 4))
+    ax.hist(sharpes.values, bins=max(5, len(sharpes) // 2), color="#3498db",
+            edgecolor="white", alpha=0.85)
+    ax.axvline(sharpes.mean(), color="#e74c3c", linewidth=2,
+               label=f"Media={sharpes.mean():.3f}")
+    ax.axvline(0, color="black", linewidth=1, linestyle="--")
+    ax.set_xlabel("Sharpe anualizado")
+    ax.set_ylabel("Frecuencia")
+    ax.set_title(title)
+    ax.legend()
+    plt.tight_layout()
+    plt.show()
+
+
+def cpcv_debug(clf, X, y, t1, fwd_ret,
+               split_to_inspect=0,
+               n_groups=N_GROUPS, k_test=K_TEST,
+               pct_embargo=PCT_EMBARGO):
+    """
+    Debug completo de CPCV. Muestra:
+      1. Tabla de splits
+      2. Timeline detallado del split `split_to_inspect`
+      3. Tabla de predicciones IS y OOS por split
+      4. Fórmulas explícitas con valores numéricos (verificable con calculadora)
+      5. Returns de un path
+      6. Sharpe del path con fórmula
+      7. Distribución de Sharpes de paths
+    """
+    splits_info, oos_by_split, is_by_split, preds_by_split = _build_cpcv_splits_table(
+        clf, X, y, t1, fwd_ret, n_groups, k_test, pct_embargo)
+
+    # ── Sección 1: Tabla de splits ──────────────────────────────────────────
+    print("=" * 70)
+    print("SECCIÓN 1 — SPLITS OVERVIEW")
+    print("=" * 70)
+    rows = []
+    for s in splits_info:
+        rows.append({
+            "split_id":    s["split_id"],
+            "test_groups": str(s["test_groups"]),
+            "train_start": s["train_start"].date() if s["train_start"] else None,
+            "train_end":   s["train_end"].date()   if s["train_end"]   else None,
+            "test_start":  s["test_start"].date(),
+            "test_end":    s["test_end"].date(),
+            "embargo_end": s["embargo_end"].date() if s["embargo_end"] else "-",
+            "n_train":     s["n_train"],
+            "n_test":      s["n_test"],
+            "n_embargoed": s["n_embargoed"],
+        })
+    display(pd.DataFrame(rows).set_index("split_id"))
+
+    # ── Sección 2: Timeline detallado ────────────────────────────────────────
+    print(f"\n{'=' * 70}")
+    print(f"SECCIÓN 2 — TIMELINE DETALLADO (split {split_to_inspect})")
+    print("=" * 70)
+    _plot_split_timeline(splits_info[split_to_inspect], X)
+
+    # ── Sección 3: Predicciones IS y OOS ─────────────────────────────────────
+    print(f"\n{'=' * 70}")
+    print("SECCIÓN 3 — PREDICCIONES POR SPLIT")
+    print("=" * 70)
+    for s in splits_info:
+        sid = s["split_id"]
+        y_hat_tr, y_hat_te = preds_by_split[sid]
+        is_df, oos_df = _get_split_detail(
+            s, X, y, fwd_ret, is_by_split[sid], oos_by_split[sid],
+            y_hat_tr, y_hat_te)
+        print(f"\n--- Split {sid}  test_groups={s['test_groups']} ---")
+        print("  IS (train):")
+        display(is_df.head(10).style.format({
+            "fwd_ret": "{:.5f}", "pnl": "{:+.5f}"}))
+        print("  OOS (test):")
+        display(oos_df.style.format({
+            "fwd_ret": "{:.5f}", "pnl": "{:+.5f}"}))
+
+    # ── Sección 4: Fórmulas con valores numéricos ─────────────────────────────
+    print(f"\n{'=' * 70}")
+    print("SECCIÓN 4 — FÓRMULAS IS vs OOS SHARPE (verificable con calculadora)")
+    print("=" * 70)
+    print("  PnL_i     = sign(y_pred_i) * fwd_ret_i   [sign: 0→-1, 1→+1]")
+    print("  SR        = sqrt(252) * mean(pnl) / std(pnl)\n")
+    for s in splits_info:
+        sid = s["split_id"]
+        is_pnl  = is_by_split[sid]
+        oos_pnl = oos_by_split[sid]
+        is_sr   = _fold_sharpe(is_pnl)
+        oos_sr  = _fold_sharpe(oos_pnl)
+        print(f"  Fold {sid}  test_groups={s['test_groups']}")
+        print(f"    IS  SR = sqrt(252) * {is_pnl.mean():.6f} / {is_pnl.std():.6f}"
+              f"  = {is_sr:+.4f}   (n={len(is_pnl)})")
+        print(f"    OOS SR = sqrt(252) * {oos_pnl.mean():.6f} / {oos_pnl.std():.6f}"
+              f"  = {oos_sr:+.4f}   (n={len(oos_pnl)})")
+        print()
+
+    # ── Secciones 5–7: paths ─────────────────────────────────────────────────
+    paths = get_paths(n_groups, k_test)
+    path_sharpes = []
+    path_pnls = []
+    for pid, split_ids in enumerate(paths):
+        valid = [sid for sid in split_ids if sid in oos_by_split]
+        if not valid:
+            continue
+        path_pnl = pd.concat([oos_by_split[sid] for sid in valid]).sort_index()
+        path_pnls.append((pid, valid, path_pnl))
+        path_sharpes.append(_fold_sharpe(path_pnl))
+
+    # Sección 5: returns del primer path
+    print(f"\n{'=' * 70}")
+    print("SECCIÓN 5 — RETURNS DEL PATH 0")
+    print("=" * 70)
+    pid0, splits0, pnl0 = path_pnls[0]
+    fig, ax = plt.subplots(figsize=(12, 3))
+    colors = ["#e74c3c" if v < 0 else "#2ecc71" for v in pnl0]
+    ax.bar(range(len(pnl0)), pnl0.values, color=colors, width=0.8)
+    ax.axhline(0, color="black", linewidth=0.8)
+    ax.set_title(f"Path {pid0} | splits={splits0} | OOS PnL por observación")
+    ax.set_xlabel("Observación (orden temporal)")
+    ax.set_ylabel("PnL (log-ret)")
+    ax.set_xticks(range(0, len(pnl0), max(1, len(pnl0) // 10)))
+    ax.set_xticklabels([str(d.date()) for d in pnl0.index[::max(1, len(pnl0) // 10)]],
+                       rotation=30, ha="right", fontsize=8)
+    plt.tight_layout()
+    plt.show()
+
+    # Sección 6: Sharpe del path con fórmula
+    print(f"\n{'=' * 70}")
+    print("SECCIÓN 6 — SHARPE DEL PATH 0 (con fórmula)")
+    print("=" * 70)
+    sr0 = _fold_sharpe(pnl0)
+    print(f"  Path {pid0}  splits={splits0}")
+    print(f"  SR = sqrt(252) * mean(path_pnl) / std(path_pnl)")
+    print(f"     = sqrt(252) * {pnl0.mean():.6f} / {pnl0.std():.6f}")
+    print(f"     = {sr0:+.4f}")
+    print(f"  n_obs={len(pnl0)}  rango={pnl0.index[0].date()} → {pnl0.index[-1].date()}")
+
+    # Sección 7: distribución de Sharpes de paths
+    print(f"\n{'=' * 70}")
+    print("SECCIÓN 7 — DISTRIBUCIÓN DE SHARPES DE PATHS")
+    print(f"  phi = C({n_groups},{k_test})*{k_test}/{n_groups} = {len(path_sharpes)} paths")
+    print("=" * 70)
+    _plot_sharpe_dist(pd.Series(path_sharpes, name="CPCV paths"),
+                     title=f"Distribución Sharpes CPCV  (N={n_groups}, k={k_test}, "
+                           f"phi={len(path_sharpes)})")
+
+    return pd.Series(path_sharpes, name="cpcv_path_sharpes")
