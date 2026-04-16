@@ -6,10 +6,13 @@ Toda la lógica vive aquí. El notebook solo importa y llama.
 """
 import numpy as np
 import pandas as pd
+import matplotlib
+matplotlib.use('Agg')
 import matplotlib.pyplot as plt
 import matplotlib.patches as mpatches
 from itertools import combinations
 
+from sklearn.base import clone
 from sklearn.model_selection import KFold
 
 from cpcv_analysis.splitters import (
@@ -52,6 +55,7 @@ def _pnl_from_split(clf, X, y, t1, fwd_ret, final_tr, test_idx):
     X_tr, y_tr = X.iloc[final_tr], y.iloc[final_tr]
     X_te, y_te = X.iloc[test_idx], y.iloc[test_idx]
 
+    clf = clone(clf)
     clf.fit(X_tr, y_tr)
 
     y_hat_tr = clf.predict(X_tr)
@@ -363,6 +367,9 @@ def wf_sharpe_dist(clf, X, y, t1, fwd_ret,
     for train_idx, test_idx in splitter.split(X):
         if len(train_idx) < 5 or len(test_idx) < 2:
             continue
+        # Skip folds where train lacks both classes
+        if len(np.unique(y.iloc[train_idx])) < 2:
+            continue
         _, oos_pnl, _, _ = _pnl_from_split(
             clf, X, y, t1, fwd_ret, train_idx, test_idx)
         sharpes.append(_fold_sharpe(oos_pnl))
@@ -391,11 +398,15 @@ def kfold_sharpe_dist(clf, X, y, t1, fwd_ret,
 
     sharpes = []
     for train_idx, test_idx in split_iter:
+        train_idx = np.array(train_idx)
+        test_idx = np.array(test_idx)
         if len(train_idx) < 5 or len(test_idx) < 2:
             continue
+        # Skip folds where train lacks both classes (XGBoost requires 0-indexed classes)
+        if len(np.unique(y.iloc[train_idx])) < 2:
+            continue
         _, oos_pnl, _, _ = _pnl_from_split(
-            clf, X, y, t1, fwd_ret,
-            np.array(train_idx), np.array(test_idx))
+            clf, X, y, t1, fwd_ret, train_idx, test_idx)
         sharpes.append(_fold_sharpe(oos_pnl))
 
     label = "purged_kfold" if purged else "kfold"
