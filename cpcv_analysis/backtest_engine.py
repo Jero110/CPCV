@@ -317,3 +317,27 @@ def cpcv_debug(clf, X, y, t1, fwd_ret,
                            f"phi={len(path_sharpes)})")
 
     return pd.Series(path_sharpes, name="cpcv_path_sharpes")
+
+
+def cpcv_sharpe_dist(clf, X, y, t1, fwd_ret,
+                     n_groups=N_GROUPS, k_test=K_TEST,
+                     pct_embargo=PCT_EMBARGO) -> pd.Series:
+    """
+    Production-ready. Devuelve pd.Series con el Sharpe de cada path CPCV.
+    Sin prints, sin plots. Misma lógica que cpcv_debug internamente.
+
+    Formula: SR_path = sqrt(252) * mean(path_pnl) / std(path_pnl)
+    """
+    _, oos_by_split, _, _ = _build_cpcv_splits_table(
+        clf, X, y, t1, fwd_ret, n_groups, k_test, pct_embargo)
+
+    paths = get_paths(n_groups, k_test)
+    sharpes = []
+    for split_ids in paths:
+        valid = [sid for sid in split_ids if sid in oos_by_split]
+        if not valid:
+            continue
+        path_pnl = pd.concat([oos_by_split[sid] for sid in valid]).sort_index()
+        sharpes.append(_fold_sharpe(path_pnl))
+
+    return pd.Series(sharpes, name="cpcv_path_sharpes")
