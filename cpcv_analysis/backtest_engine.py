@@ -64,3 +64,78 @@ def _pnl_from_split(clf, X, y, t1, fwd_ret, final_tr, test_idx):
                         index=X_te.index, dtype=float)
 
     return is_pnl, oos_pnl, y_hat_tr, y_hat_te
+
+
+def _build_cpcv_splits_table(clf, X, y, t1, fwd_ret,
+                              n_groups=N_GROUPS, k_test=K_TEST,
+                              pct_embargo=PCT_EMBARGO):
+    """
+    Corre todos los splits de CPCV y devuelve:
+      - splits_info: lista de dicts con metadata por split
+      - oos_by_split: dict {split_id: oos_pnl Series}
+      - is_by_split:  dict {split_id: is_pnl Series}
+      - preds_by_split: dict {split_id: (y_hat_tr, y_hat_te)}
+    """
+    cpcv = CombinatorialPurgedKFold(n_groups, k_test, t1, pct_embargo)
+    splits_info = []
+    oos_by_split = {}
+    is_by_split = {}
+    preds_by_split = {}
+
+    for split_id, (raw_tr, test_idx, final_tr, test_groups) in enumerate(cpcv.split(X)):
+        is_pnl, oos_pnl, y_hat_tr, y_hat_te = _pnl_from_split(
+            clf, X, y, t1, fwd_ret, final_tr, test_idx)
+
+        # Embargo: indices that were in raw_tr but removed by purge/embargo
+        raw_tr_set = set(raw_tr.tolist())
+        final_tr_set = set(final_tr.tolist())
+        embargoed_idx = sorted(raw_tr_set - final_tr_set)
+
+        splits_info.append({
+            "split_id": split_id,
+            "test_groups": test_groups,
+            "train_start": X.index[final_tr[0]] if len(final_tr) else None,
+            "train_end":   X.index[final_tr[-1]] if len(final_tr) else None,
+            "test_start":  X.index[test_idx[0]],
+            "test_end":    X.index[test_idx[-1]],
+            "embargo_end": X.index[embargoed_idx[-1]] if embargoed_idx else None,
+            "n_train": len(final_tr),
+            "n_test":  len(test_idx),
+            "n_embargoed": len(embargoed_idx),
+            "_final_tr": final_tr,
+            "_test_idx": test_idx,
+            "_embargoed_idx": embargoed_idx,
+        })
+        oos_by_split[split_id] = oos_pnl
+        is_by_split[split_id] = is_pnl
+        preds_by_split[split_id] = (y_hat_tr, y_hat_te)
+
+    return splits_info, oos_by_split, is_by_split, preds_by_split
+
+
+def _get_split_detail(split_info, X, y, fwd_ret, is_pnl, oos_pnl,
+                      y_hat_tr, y_hat_te):
+    """
+    Devuelve dos DataFrames: IS y OOS con columnas:
+      date | y_pred | y_real | fwd_ret | pnl
+    """
+    final_tr = split_info["_final_tr"]
+    test_idx = split_info["_test_idx"]
+
+    is_df = pd.DataFrame({
+        "y_pred": y_hat_tr,
+        "y_real": y.iloc[final_tr].values,
+        "fwd_ret": fwd_ret.iloc[final_tr].values,
+        "pnl": is_pnl.values,
+    }, index=X.index[final_tr])
+    is_df.index.name = "date"
+
+    oos_df = pd.DataFrame({
+        "y_pred": y_hat_te,
+        "y_real": y.iloc[test_idx].values,
+        "fwd_ret": fwd_ret.iloc[test_idx].values,
+        "pnl": oos_pnl.values,
+    }, index=X.index[test_idx])
+    oos_df.index.name = "date"
+
+    return is_df, oos_df
