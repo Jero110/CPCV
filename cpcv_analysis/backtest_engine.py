@@ -341,3 +341,62 @@ def cpcv_sharpe_dist(clf, X, y, t1, fwd_ret,
         sharpes.append(_fold_sharpe(path_pnl))
 
     return pd.Series(sharpes, name="cpcv_path_sharpes")
+
+
+def wf_sharpe_dist(clf, X, y, t1, fwd_ret,
+                   purged=False,
+                   n_splits=6,
+                   pct_embargo=PCT_EMBARGO) -> pd.Series:
+    """
+    Distribución de Sharpes OOS de WalkForward.
+    purged=False → WalkForwardCV sin purge (solo expanding window)
+    purged=True  → WalkForwardCV con purge+embargo (De Prado style)
+
+    Formula por fold: SR = sqrt(252) * mean(oos_pnl) / std(oos_pnl)
+    """
+    if purged:
+        splitter = WalkForwardCV(n_splits=n_splits, t1=t1, pctEmbargo=pct_embargo)
+    else:
+        splitter = WalkForwardCV(n_splits=n_splits, t1=None, pctEmbargo=0.0)
+
+    sharpes = []
+    for train_idx, test_idx in splitter.split(X):
+        if len(train_idx) < 5 or len(test_idx) < 2:
+            continue
+        _, oos_pnl, _, _ = _pnl_from_split(
+            clf, X, y, t1, fwd_ret, train_idx, test_idx)
+        sharpes.append(_fold_sharpe(oos_pnl))
+
+    label = "purged_wf" if purged else "walkforward"
+    return pd.Series(sharpes, name=label)
+
+
+def kfold_sharpe_dist(clf, X, y, t1, fwd_ret,
+                      purged=False,
+                      n_splits=6,
+                      pct_embargo=PCT_EMBARGO) -> pd.Series:
+    """
+    Distribución de Sharpes OOS de KFold.
+    purged=False → sklearn KFold sin purge
+    purged=True  → PurgedKFold de De Prado con purge+embargo
+
+    Formula por fold: SR = sqrt(252) * mean(oos_pnl) / std(oos_pnl)
+    """
+    if purged:
+        splitter = PurgedKFold(n_splits=n_splits, t1=t1, pctEmbargo=pct_embargo)
+        split_iter = splitter.split(X)
+    else:
+        splitter = KFold(n_splits=n_splits, shuffle=False)
+        split_iter = splitter.split(X)
+
+    sharpes = []
+    for train_idx, test_idx in split_iter:
+        if len(train_idx) < 5 or len(test_idx) < 2:
+            continue
+        _, oos_pnl, _, _ = _pnl_from_split(
+            clf, X, y, t1, fwd_ret,
+            np.array(train_idx), np.array(test_idx))
+        sharpes.append(_fold_sharpe(oos_pnl))
+
+    label = "purged_kfold" if purged else "kfold"
+    return pd.Series(sharpes, name=label)
