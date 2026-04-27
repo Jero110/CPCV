@@ -48,6 +48,24 @@ def slice_by_dates(X, y, t1, fwd_ret, start: str = None, end: str = None):
     return X.loc[idx], y.loc[idx], t1.loc[idx], fwd_ret.loc[idx]
 
 
+def holdout_sharpe(clf, X_retrain, y_retrain, X_holdout, fwd_ret_holdout) -> float:
+    """
+    Re-entrena clf con X_retrain/y_retrain (hyperparams fijos).
+    Evalúa en X_holdout. Retorna Sharpe anualizado OOS.
+    PnL = sign(y_pred - 0.5) * fwd_ret  donde sign: {0->-1, 1->+1}
+    """
+    clf_final = clone(clf)
+    clf_final.fit(X_retrain, y_retrain)
+    y_pred = clf_final.predict(X_holdout)
+    signs  = (2 * y_pred - 1).astype(float)
+    pnl    = pd.Series(
+        signs * fwd_ret_holdout.values,
+        index=X_holdout.index,
+        dtype=float,
+    )
+    return _fold_sharpe(pnl)
+
+
 def _fold_sharpe(pnl: pd.Series, periods: int = 252) -> float:
     """
     Annualized Sharpe ratio.
