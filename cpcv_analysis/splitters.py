@@ -100,53 +100,88 @@ class CombinatorialPurgedKFold:
         self.pctEmbargo = pctEmbargo
 
     def split(self, X):
-        """
-        Yields (raw_train_idx, test_idx, purged_train_idx, test_groups) per split.
-        raw_train_idx: before purge/embargo
-        purged_train_idx: after purge + embargo
-        test_groups: tuple of group indices in test
-        """
         indices = np.arange(len(X))
         groups  = np.array_split(indices, self.N)
         mbrg    = getEmbargoTimes(X.index, self.pctEmbargo)
 
         for test_groups in combinations(range(self.N), self.k):
-            test_idx      = np.concatenate([groups[g] for g in test_groups])
-            raw_train_idx = np.concatenate([groups[g] for g in range(self.N)
-                                            if g not in test_groups])
+            test_idx      = np.sort(np.concatenate([groups[g] for g in test_groups]))
+            raw_train_idx = np.sort(np.concatenate([groups[g] for g in range(self.N)
+                                            if g not in test_groups]))
 
-            testTimes = pd.Series(
-                self.t1.iloc[test_idx].values,
-                index=X.index[test_idx]
-            )
-            train_t1 = self.t1.iloc[raw_train_idx]
-            purged_t1 = getTrainTimes(train_t1, testTimes)
+            # Step 1: purge by label overlap
+            testTimes = pd.Series(self.t1.iloc[test_idx].values, index=X.index[test_idx])
+            train_t1   = self.t1.iloc[raw_train_idx]
+            trainTimes = getTrainTimes(train_t1, testTimes)
+            purged_only_times = set(train_t1.index) - set(trainTimes.index)
 
+            # Step 2-3: embargo — Corregido para ser aditivo
+            embargoed_times = set()
             if self.pctEmbargo > 0:
-                # Find end of each contiguous test block, embargo the observations
-                # immediately after each block end — but only those obs, not everything.
-                sorted_test = np.sort(test_idx)
-                block_ends  = sorted_test[np.where(np.diff(sorted_test) > 1)[0]]
-                block_ends  = np.append(block_ends, sorted_test[-1])
-                embargoed_times = set()
+                block_ends = np.append(test_idx[np.where(np.diff(test_idx) > 1)[0]], test_idx[-1])
                 for end in block_ends:
-                    if end < len(X) - 1:
-                        embargo_time = mbrg.iloc[end]
-                        # next block start (or end of series)
-                        after_end = end + 1
-                        next_block_start = (
-                            sorted_test[np.searchsorted(sorted_test, after_end)]
-                            if after_end in sorted_test
-                            else len(X)
-                        )
-                        # embargo obs between block_end and embargo_time that are train
-                        for t in purged_t1.index:
-                            if X.index[after_end - 1] < t <= embargo_time:
-                                embargoed_times.add(t)
-                purged_t1 = purged_t1[~purged_t1.index.isin(embargoed_times)]
+                    # CAMBIO: Usamos t1 (fin del trade) en lugar del index (inicio del trade)
+                    t1_end = self.t1.iloc[end]
+                    # Buscamos el punto de embargo correspondiente a ese final
+                    embargoTime = mbrg.iloc[X.index.searchsorted(t1_end, side='left') - 1]
+                    in_embargo = train_t1[(train_t1.index > t1_end) & (train_t1.index <= embargoTime)].index
+                    embargoed_times.update(in_embargo)
+                
+                trainTimes = trainTimes[~trainTimes.index.isin(embargoed_times)]
 
-            final_train_idx = indices[X.index.isin(purged_t1.index)]
-            yield raw_train_idx, test_idx, final_train_idx, test_groups
+            final_train_idx = indices[X.index.isin(trainTimes.index)]
+            purged_only_idx = indices[X.index.isin(purged_only_times - embargoed_times)]
+            embargoed_idx   = indices[X.index.isin(embargoed_times)]
+            yield raw_train_idx, test_idx, final_train_idx, test_groups, purged_only_idx, embargoed_idx
+
+# ── Rolling Walk-Forward (fixed train window, slides by test_size) ────────
+
+class RollingWalkForwardCV:
+    """
+    Rolling-window walk-forward CV: train window size is fixed, slides forward
+    by test_size each fold.
+
+    Folds are defined by explicit date boundaries:
+        fold_dates = [(train_start, train_end, test_start, test_end), ...]
+
+    If fold_dates is None, splits are computed from train_months/test_months
+    relative to X.index using calendar arithmetic.
+    """
+    def __init__(self, fold_dates: list, t1: pd.Series = None,
+                 pctEmbargo: float = 0.0):
+        """
+        fold_dates: list of (train_start, train_end, test_start, test_end) strings.
+        """
+        self.fold_dates  = fold_dates
+        self.t1          = t1
+        self.pctEmbargo  = pctEmbargo
+
+    def split(self, X):
+        mbrg = getEmbargoTimes(X.index, self.pctEmbargo) if self.pctEmbargo > 0 else None
+        indices = np.arange(len(X))
+
+        for tr_s, tr_e, te_s, te_e in self.fold_dates:
+            tr_mask = (X.index >= pd.Timestamp(tr_s)) & (X.index < pd.Timestamp(tr_e))
+            te_mask = (X.index >= pd.Timestamp(te_s)) & (X.index < pd.Timestamp(te_e))
+            train_idx = indices[tr_mask]
+            test_idx  = indices[te_mask]
+
+            if len(train_idx) < 2 or len(test_idx) < 1:
+                continue
+
+            if self.t1 is not None:
+                train_t1  = self.t1.iloc[train_idx]
+                testTimes = pd.Series(
+                    self.t1.iloc[test_idx].values,
+                    index=X.index[test_idx]
+                )
+                trainTimes = getTrainTimes(train_t1, testTimes)
+                if self.pctEmbargo > 0 and mbrg is not None:
+                    embargoTime = mbrg[X.index[test_idx[-1]]]
+                    trainTimes  = trainTimes[trainTimes.index < embargoTime]
+                train_idx = indices[X.index.isin(trainTimes.index)]
+
+            yield train_idx, test_idx
 
 
 # ── Walk-Forward (new, same interface convention) ─────────────────────────
@@ -175,19 +210,16 @@ class WalkForwardCV:
             test_idx   = np.arange(test_start, test_end)
             train_idx  = np.arange(0, test_start)
 
-            if self.t1 is not None and self.pctEmbargo > 0 and mbrg is not None:
-                testTimes  = pd.Series(self.t1.iloc[test_idx].values,
-                                       index=X.index[test_idx])
-                train_t1   = self.t1.iloc[train_idx]
-                purged_t1  = getTrainTimes(train_t1, testTimes)
-                embargo_t  = mbrg.iloc[test_idx[-1]]
-                purged_t1  = purged_t1[purged_t1.index < embargo_t]
-                train_idx  = np.where(X.index.isin(purged_t1.index))[0]
-            elif self.t1 is not None and self.pctEmbargo == 0:
-                testTimes  = pd.Series(self.t1.iloc[test_idx].values,
-                                       index=X.index[test_idx])
-                train_t1   = self.t1.iloc[train_idx]
-                purged_t1  = getTrainTimes(train_t1, testTimes)
-                train_idx  = np.where(X.index.isin(purged_t1.index))[0]
+            if self.t1 is not None:
+                train_t1  = self.t1.iloc[train_idx]
+                testTimes = pd.Series(
+                    self.t1.iloc[test_idx].values,
+                    index=X.index[test_idx]
+                )
+                trainTimes = getTrainTimes(train_t1, testTimes)
+                if self.pctEmbargo > 0 and mbrg is not None:
+                    embargoTime = mbrg[X.index[test_idx[-1]]]
+                    trainTimes  = trainTimes[trainTimes.index < embargoTime]
+                train_idx = np.where(X.index.isin(trainTimes.index))[0]
 
             yield train_idx, test_idx

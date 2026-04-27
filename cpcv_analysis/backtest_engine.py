@@ -17,9 +17,10 @@ from cpcv_analysis.splitters import (
     CombinatorialPurgedKFold,
     PurgedKFold,
     WalkForwardCV,
+    RollingWalkForwardCV,
 )
 from cpcv_analysis.cv_runner import get_paths, run_cpcv
-from cpcv_analysis.config import N_GROUPS, K_TEST, PCT_EMBARGO
+from cpcv_analysis.config import N_GROUPS, K_TEST, PCT_EMBARGO, WF_START, DEV_START, DEV_END
 from IPython.display import display
 
 
@@ -457,6 +458,29 @@ def cpcv_sharpe_dist(clf, X, y, t1, fwd_ret,
     return pd.Series(sharpes, name=f"cpcv_{variant}")
 
 
+def _wf_rolling_fold_dates(wf_start=WF_START, dev_start=DEV_START, dev_end=DEV_END):
+    """
+    Genera los 3 fold_dates para WF rolling 8:4 sobre el dev set.
+
+    Lógica:
+      - Train window = 8 meses (fija, rolling)
+      - Test window  = 4 meses
+      - Fold 1: train=wf_start→dev_start,       test=dev_start→dev_start+4m
+      - Fold 2: train=dev_start→dev_start+4m,   test=dev_start+4m→dev_start+8m
+      - Fold 3: train=dev_start+4m→dev_start+8m, test=dev_start+8m→dev_end
+    """
+    from dateutil.relativedelta import relativedelta
+    d0 = pd.Timestamp(dev_start)
+    return [
+        (wf_start,                    dev_start,
+         dev_start,                   str((d0 + relativedelta(months=4)).date())),
+        (str(d0.date()),              str((d0 + relativedelta(months=4)).date()),
+         str((d0 + relativedelta(months=4)).date()),  str((d0 + relativedelta(months=8)).date())),
+        (str((d0 + relativedelta(months=4)).date()),  str((d0 + relativedelta(months=8)).date()),
+         str((d0 + relativedelta(months=8)).date()),  dev_end),
+    ]
+
+
 def wf_sharpe_dist(clf, X, y, t1, fwd_ret,
                    variant="no_purge",
                    n_splits=6,
@@ -483,6 +507,29 @@ def wf_sharpe_dist(clf, X, y, t1, fwd_ret,
         sharpes.append(_fold_sharpe(oos_pnl))
 
     return pd.Series(sharpes, name=f"wf_{variant}")
+
+
+def wf_rolling_sharpe_dist(clf, X, y, t1, fwd_ret,
+                           wf_start=WF_START, dev_start=DEV_START, dev_end=DEV_END,
+                           pct_embargo=PCT_EMBARGO) -> pd.Series:
+    """
+    Distribución de Sharpes OOS de WF rolling 8:4 (3 folds, purge+embargo).
+    Train window=8 meses fija. Test window=4 meses. Folds: M1-4, M5-8, M9-12 del dev set.
+    """
+    fold_dates = _wf_rolling_fold_dates(wf_start, dev_start, dev_end)
+    splitter   = RollingWalkForwardCV(fold_dates, t1=t1, pctEmbargo=pct_embargo)
+
+    sharpes = []
+    for train_idx, test_idx in splitter.split(X):
+        if len(train_idx) < 5 or len(test_idx) < 2:
+            continue
+        if len(np.unique(y.iloc[train_idx])) < 2:
+            continue
+        _, oos_pnl, _, _ = _pnl_from_split(
+            clf, X, y, t1, fwd_ret, train_idx, test_idx)
+        sharpes.append(_fold_sharpe(oos_pnl))
+
+    return pd.Series(sharpes, name="wf_rolling")
 
 
 def kfold_sharpe_dist(clf, X, y, t1, fwd_ret,
@@ -736,24 +783,24 @@ def wf_vs_holdout_plot(
     X_holdout, fwd_ret_holdout,
     prices_full=None,
     dev_start: str = None,
-    n_splits: int = 5,
+    wf_start: str = WF_START,
     pct_embargo=PCT_EMBARGO,
 ):
     """
-    Figura 2 de tesis: distribución WF rolling sobre dev set vs Sharpe hold-out.
+    Figura 2 de tesis: distribución WF rolling 8:4 sobre dev set vs Sharpe hold-out.
 
-    X_wf debe incluir Q4-2023 + 2024 para que WF tenga warm-up en el primer fold.
-    dev_start: fecha de inicio del dev set "visible" en el gráfico de precios.
+    X_wf debe incluir warm-up (wf_start→dev_start) + dev 2024.
+    3 folds: M1-4, M5-8, M9-12 del dev set.
+    dev_start: fecha de inicio del dev set visible en el gráfico de precios.
 
     Panel izquierdo: precio SPY con zonas coloreadas.
     Panel derecho:   violin WF folds + línea hold-out SR.
 
     Retorna (wf_sharpes: pd.Series, holdout_sr: float).
     """
-    wf_sharpes = wf_sharpe_dist(
+    wf_sharpes = wf_rolling_sharpe_dist(
         clf, X_wf, y_wf, t1_wf, fwd_ret_wf,
-        variant="purge_embargo",
-        n_splits=n_splits,
+        wf_start=wf_start,
         pct_embargo=pct_embargo,
     )
     ho_sr = holdout_sharpe(clf, X_retrain, y_retrain, X_holdout, fwd_ret_holdout)
@@ -824,7 +871,7 @@ def wf_vs_holdout_plot(
 
     ax1.axhline(0, color="gray", linewidth=0.8, linestyle=":")
     ax1.set_xticks([1])
-    ax1.set_xticklabels([f"WF rolling (n={n_folds} folds)"])
+    ax1.set_xticklabels([f"WF rolling 8:4 (n={n_folds} folds)"])
     ax1.set_ylabel("Sharpe anualizado OOS")
     coverage_str = "SI ✓" if in_ci else "NO ✗"
     ax1.set_title(

@@ -2,11 +2,12 @@
 
 # ── Data ──────────────────────────────────────────────────────────────────
 TICKER          = "SPY"
-START           = "2023-10-01"   # Q4-2023 warm-up para WF
+START           = "2023-05-01"   # 8 meses antes de DEV_START para warm-up WF rolling
 END             = "2026-01-01"   # cubre 2025 completo
 FORWARD_HORIZON = 5
 
 # ── Experiment date boundaries (Phase 1: SPY) ──────────────────────────────
+WF_START       = "2023-05-01"   # inicio warm-up WF rolling (8 meses antes de dev)
 DEV_START      = "2024-01-01"
 DEV_END        = "2025-01-01"
 RETRAIN_START  = "2025-01-01"
