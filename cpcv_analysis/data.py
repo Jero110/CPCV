@@ -121,7 +121,8 @@ def build_features(prices: pd.DataFrame):
     fwd_ret = np.log(df["Close"].shift(-FORWARD_HORIZON) / df["Close"])
     df["target"] = (fwd_ret > 0).astype(int)
 
-    # t1: the timestamp FORWARD_HORIZON bars ahead of each observation
+    # t1: end of the label window for each observation (t + FORWARD_HORIZON).
+    # Used by getTrainTimes to purge train obs whose label overlaps with test.
     t1 = pd.Series(
         [df.index[i + FORWARD_HORIZON] if i + FORWARD_HORIZON < len(df) else df.index[-1]
          for i in range(len(df))],
@@ -165,3 +166,25 @@ def load_data():
     prices = download_prices()
     prices = inject_crash(prices)
     return build_features(prices)
+
+
+def load_asset(ticker: str, start: str, end: str, use_crash: bool = False):
+    """
+    Descarga OHLCV de `ticker` en [start, end), construye features.
+    Retorna (X, y, t1, prices, fwd_ret).
+    BTC-USD: yfinance lo maneja directamente igual que equities.
+    """
+    try:
+        raw = yf.download(ticker, start=start, end=end,
+                          auto_adjust=True, progress=False)
+        if raw is None or raw.empty:
+            raise RuntimeError(f"yfinance vacío para {ticker}")
+        prices = _normalize_ohlcv(raw)
+    except Exception as exc:
+        raise RuntimeError(f"Falló descarga {ticker} {start}→{end}: {exc}") from exc
+
+    if use_crash:
+        prices = inject_crash(prices)
+
+    X, y, t1, _, fwd_ret = build_features(prices)
+    return X, y, t1, prices, fwd_ret
