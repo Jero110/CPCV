@@ -218,7 +218,9 @@ SYNTHETIC_SCENARIOS = [
     ]),
     # 16 crash_start_warmup
     dict(id="16", name="crash_start_warmup", regimes=[
-        ("bull",     COVID_DEV_START,     COVID_DEV_END),
+        ("crash",    COVID_DEV_START,     "2018-10-15"),
+        ("recovery", "2018-10-15",        "2019-01-01"),
+        ("bull",     "2019-01-01",        COVID_DEV_END),
         ("bull",     COVID_RETRAIN_START, COVID_RETRAIN_END),
         ("bull",     COVID_HOLDOUT_START, COVID_HOLDOUT_END),
     ]),
@@ -231,9 +233,10 @@ SYNTHETIC_SCENARIOS = [
     ]),
     # 18 volatile_bull
     dict(id="18", name="volatile_bull", regimes=[
-        ("bull",     COVID_DEV_START,     COVID_DEV_END),
-        ("bull",     COVID_RETRAIN_START, COVID_RETRAIN_END),
-        ("bull",     COVID_HOLDOUT_START, COVID_HOLDOUT_END),
+        ("recovery", COVID_DEV_START,     "2019-03-01"),
+        ("bull",     "2019-03-01",        COVID_DEV_END),
+        ("recovery", COVID_RETRAIN_START, COVID_RETRAIN_END),
+        ("recovery", COVID_HOLDOUT_START, COVID_HOLDOUT_END),
     ]),
     # 19 bear_crash_recovery
     dict(id="19", name="bear_crash_recovery", regimes=[
