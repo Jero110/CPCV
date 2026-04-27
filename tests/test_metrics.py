@@ -7,8 +7,8 @@ def test_compute_metrics_returns_all_keys():
     from cpcv_analysis.metrics import compute_metrics
     val_sharpes = pd.Series([0.5, 0.8, 1.2, -0.3, 0.6])
     ho_sr = 0.7
-    val_pnl = pd.Series(np.random.randn(50) * 0.01)
-    ho_pnl  = pd.Series(np.random.randn(20) * 0.01)
+    val_pnl = pd.Series(np.ones(50) * 0.01)
+    ho_pnl  = pd.Series(np.ones(20) * 0.01)
     result = compute_metrics(val_sharpes, ho_sr, val_pnl, ho_pnl)
     expected_keys = {
         "delta_median", "coverage_90", "rank_pct",

@@ -7,8 +7,10 @@ import pandas as pd
 
 
 def _max_drawdown(pnl: pd.Series) -> float:
-    """Maximum drawdown of PnL series — returns most negative value (<=0)."""
-    cum = pnl.cumsum()
+    """Maximum drawdown anchored at zero initial wealth. Returns value <= 0."""
+    if len(pnl) == 0:
+        return 0.0
+    cum = pd.concat([pd.Series([0.0]), pnl]).cumsum()
     peak = cum.cummax()
     dd = cum - peak
     return float(dd.min())
@@ -33,6 +35,8 @@ def compute_metrics(
     Returns dict with keys: delta_median, coverage_90, rank_pct,
                              dispersion, delta_maxDD, pct_positive
     """
+    if len(val_sharpes) == 0:
+        raise ValueError("val_sharpes must not be empty")
     sharpes = np.asarray(val_sharpes)
 
     p5  = float(np.percentile(sharpes, 5))

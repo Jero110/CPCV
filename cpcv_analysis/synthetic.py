@@ -44,7 +44,6 @@ def _add_intraday(closes: np.ndarray, rng: np.random.Generator) -> pd.DataFrame:
     noise_lo = np.abs(rng.normal(0, 0.005, n))
     highs = np.maximum(opens, closes) * (1 + noise_hi)
     lows  = np.minimum(opens, closes) * (1 - noise_lo)
-    lows  = np.minimum(lows, np.minimum(opens, closes))
 
     volumes = rng.integers(100_000, 10_000_001, n)
     return pd.DataFrame({"Open": opens, "High": highs, "Low": lows,
