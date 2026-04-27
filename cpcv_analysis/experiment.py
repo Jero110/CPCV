@@ -217,3 +217,54 @@ def run_experiment(ticker: str, timeline_cfg: dict, clf, method: str) -> tuple:
     )
 
     return metrics, fig
+
+
+def _run_experiment_from_arrays(
+    X, y, t1, prices, fwd_ret,
+    timeline_cfg: dict,
+    clf,
+    method: str,
+) -> tuple:
+    """Same as run_experiment but accepts pre-loaded arrays instead of ticker+download."""
+    from sklearn.base import clone as sk_clone
+
+    X_dev, y_dev, t1_dev, fwd_ret_dev = slice_by_dates(
+        X, y, t1, fwd_ret, timeline_cfg["dev_start"], timeline_cfg["dev_end"])
+    X_ret, y_ret, t1_ret, fwd_ret_ret = slice_by_dates(
+        X, y, t1, fwd_ret, timeline_cfg["retrain_start"], timeline_cfg["retrain_end"])
+    X_ho, y_ho, t1_ho, fwd_ret_ho = slice_by_dates(
+        X, y, t1, fwd_ret, timeline_cfg["holdout_start"], timeline_cfg["holdout_end"])
+
+    clf = sk_clone(clf)
+    ho_sr  = holdout_sharpe(clf, X_ret, y_ret, X_ho, fwd_ret_ho)
+    ho_pnl = _holdout_pnl(clf, X_ret, y_ret, X_ho, fwd_ret_ho)
+
+    if method == "cpcv":
+        val_sharpes = cpcv_sharpe_dist(
+            clf, X_dev, y_dev, t1_dev, fwd_ret_dev,
+            n_groups=N_GROUPS, k_test=K_TEST, pct_embargo=PCT_EMBARGO, variant="purge_embargo")
+        val_pnl = _try_cpcv_val_pnl(clf, X_dev, y_dev, t1_dev, fwd_ret_dev)
+        method_label = "CPCV"
+    elif method == "wf":
+        val_sharpes = wf_rolling_sharpe_dist(
+            clf, X_dev, y_dev, t1_dev, fwd_ret_dev,
+            wf_start=timeline_cfg["wf_start"], dev_start=timeline_cfg["dev_start"],
+            dev_end=timeline_cfg["dev_end"], pct_embargo=PCT_EMBARGO)
+        val_pnl = _try_wf_val_pnl(clf, X_dev, y_dev, t1_dev, fwd_ret_dev, timeline_cfg)
+        method_label = "WF rolling 8:4"
+    elif method == "kfold":
+        val_sharpes = kfold_sharpe_dist(
+            clf, X_dev, y_dev, t1_dev, fwd_ret_dev,
+            variant="purge_embargo", n_splits=6, pct_embargo=PCT_EMBARGO)
+        val_pnl = _try_kfold_val_pnl(clf, X_dev, y_dev, t1_dev, fwd_ret_dev)
+        method_label = "KFold purged+embargo"
+    else:
+        raise ValueError(f"Unknown method '{method}'")
+
+    metrics = compute_metrics(val_sharpes, ho_sr, val_pnl, ho_pnl)
+    tl_name = timeline_cfg.get("name", "synthetic")
+    fig = _method_vs_holdout_plot(
+        val_sharpes=val_sharpes, ho_sr=ho_sr, prices_full=prices,
+        timeline_cfg=timeline_cfg, method_label=method_label,
+        fig_title=f"Synthetic | {tl_name} | {method_label}")
+    return metrics, fig

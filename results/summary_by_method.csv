@@ -1,0 +1,4 @@
+method,delta_median,coverage_90,rank_pct,dispersion,delta_maxDD,pct_positive
+cpcv,1.6753,0.25,0.32,1.0498,-0.0662,0.61
+kfold,1.5653,0.55,0.45,4.048,-0.1789,0.58
+wf,1.3223,0.35,0.425,1.6622,-0.0695,0.575
