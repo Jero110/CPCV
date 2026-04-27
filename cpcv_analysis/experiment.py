@@ -182,14 +182,20 @@ def run_experiment(ticker: str, timeline_cfg: dict, clf, method: str) -> tuple:
         method_label = "CPCV"
 
     elif method == "wf":
+        # WF Fold 1 train window starts at wf_start (8m before dev_start).
+        # We must pass the full dataset (from wf_start onward) so the splitter
+        # finds data in that pre-dev window; X_dev only starts at dev_start.
+        X_wf, y_wf, t1_wf, fwd_ret_wf = slice_by_dates(
+            X, y, t1, fwd_ret,
+            timeline_cfg["wf_start"], timeline_cfg["dev_end"])
         val_sharpes = wf_rolling_sharpe_dist(
-            clf, X_dev, y_dev, t1_dev, fwd_ret_dev,
+            clf, X_wf, y_wf, t1_wf, fwd_ret_wf,
             wf_start=timeline_cfg["wf_start"],
             dev_start=timeline_cfg["dev_start"],
             dev_end=timeline_cfg["dev_end"],
             pct_embargo=PCT_EMBARGO,
         )
-        val_pnl     = _try_wf_val_pnl(clf, X_dev, y_dev, t1_dev, fwd_ret_dev, timeline_cfg)
+        val_pnl     = _try_wf_val_pnl(clf, X_wf, y_wf, t1_wf, fwd_ret_wf, timeline_cfg)
         method_label = "WF rolling 8:4"
 
     elif method == "kfold":
@@ -246,11 +252,14 @@ def _run_experiment_from_arrays(
         val_pnl = _try_cpcv_val_pnl(clf, X_dev, y_dev, t1_dev, fwd_ret_dev)
         method_label = "CPCV"
     elif method == "wf":
+        X_wf, y_wf, t1_wf, fwd_ret_wf = slice_by_dates(
+            X, y, t1, fwd_ret,
+            timeline_cfg["wf_start"], timeline_cfg["dev_end"])
         val_sharpes = wf_rolling_sharpe_dist(
-            clf, X_dev, y_dev, t1_dev, fwd_ret_dev,
+            clf, X_wf, y_wf, t1_wf, fwd_ret_wf,
             wf_start=timeline_cfg["wf_start"], dev_start=timeline_cfg["dev_start"],
             dev_end=timeline_cfg["dev_end"], pct_embargo=PCT_EMBARGO)
-        val_pnl = _try_wf_val_pnl(clf, X_dev, y_dev, t1_dev, fwd_ret_dev, timeline_cfg)
+        val_pnl = _try_wf_val_pnl(clf, X_wf, y_wf, t1_wf, fwd_ret_wf, timeline_cfg)
         method_label = "WF rolling 8:4"
     elif method == "kfold":
         val_sharpes = kfold_sharpe_dist(
