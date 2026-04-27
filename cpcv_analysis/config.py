@@ -41,13 +41,10 @@ CRASH_MAGNITUDE = -0.20          # total return during window (−20 %)
 # ── Leakage scenario ───────────────────────────────────────────────────────
 LEAKAGE_FEATURE_NAME = "future_label"   # name of the injected leakage column
 
-# ── Monte Carlo Overfit ────────────────────────────────────────────────────
-IS_FRAC = 0.70           # in-sample fraction for MC permutation tests
-
 # ── CPCV ───────────────────────────────────────────────────────────────────
 N_GROUPS    = 6
 K_TEST      = 2
-PCT_EMBARGO = 0.02
+PCT_EMBARGO = 0.01
 
 # ── Model ──────────────────────────────────────────────────────────────────
 XGB_PARAMS = dict(
