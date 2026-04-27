@@ -609,3 +609,244 @@ def compare_methods(clf, X, y, t1, fwd_ret,
     display(pd.DataFrame(summary_rows).T)
 
     return results
+
+
+def cpcv_vs_holdout_plot(
+    clf,
+    X_dev, y_dev, t1_dev, fwd_ret_dev,
+    X_retrain, y_retrain,
+    X_holdout, fwd_ret_holdout,
+    prices_full=None,
+    n_groups=N_GROUPS, k_test=K_TEST, pct_embargo=PCT_EMBARGO,
+):
+    """
+    Figura 1 de tesis: distribución CPCV sobre dev set vs Sharpe hold-out.
+
+    Panel izquierdo: precio SPY coloreado por partición (dev / retrain / holdout).
+    Panel derecho:   violin de los phi paths CPCV + línea hold-out SR.
+
+    Retorna (cpcv_sharpes: pd.Series, holdout_sr: float).
+    """
+    cpcv_sharpes = cpcv_sharpe_dist(
+        clf, X_dev, y_dev, t1_dev, fwd_ret_dev,
+        n_groups=n_groups, k_test=k_test, pct_embargo=pct_embargo,
+        variant="purge_embargo",
+    )
+    ho_sr = holdout_sharpe(clf, X_retrain, y_retrain, X_holdout, fwd_ret_holdout)
+
+    n_paths = len(cpcv_sharpes)
+    p5, p95 = float(np.percentile(cpcv_sharpes, 5)), float(np.percentile(cpcv_sharpes, 95))
+    in_ci   = p5 <= ho_sr <= p95
+
+    has_prices = prices_full is not None
+    ncols = 2 if has_prices else 1
+    fig, axes = plt.subplots(1, ncols, figsize=(14 if has_prices else 7, 6))
+    if not has_prices:
+        axes = [axes]
+
+    # ── Panel izquierdo: precio con zonas ─────────────────────────────────
+    if has_prices:
+        ax0 = axes[0]
+        ax0.plot(prices_full.index, prices_full["Close"], color="#555", linewidth=0.8)
+
+        dev_mask = (prices_full.index >= X_dev.index[0]) & (prices_full.index <= X_dev.index[-1])
+        ret_mask = (prices_full.index >= X_retrain.index[0]) & (prices_full.index <= X_retrain.index[-1])
+        ho_mask  = (prices_full.index >= X_holdout.index[0]) & (prices_full.index <= X_holdout.index[-1])
+
+        for mask, color, label in [
+            (dev_mask, "#5b9bd5", f"Dev set (CPCV)\n{X_dev.index[0].date()}→{X_dev.index[-1].date()}"),
+            (ret_mask, "#f0a500", f"Retrain\n{X_retrain.index[0].date()}→{X_retrain.index[-1].date()}"),
+            (ho_mask,  "#e74c3c", f"Hold-out\n{X_holdout.index[0].date()}→{X_holdout.index[-1].date()}"),
+        ]:
+            if mask.any():
+                ax0.axvspan(prices_full.index[mask][0], prices_full.index[mask][-1],
+                            alpha=0.18, color=color, label=label)
+
+        ax0.set_title("SPY — Partición temporal", fontsize=11)
+        ax0.set_ylabel("Precio cierre (USD)")
+        ax0.legend(fontsize=8, loc="upper left")
+        ax0.grid(axis="y", linestyle="--", alpha=0.3)
+
+    # ── Panel derecho: violin CPCV + hold-out ────────────────────────────
+    ax1 = axes[-1]
+    vals = cpcv_sharpes.values
+
+    # Violin
+    if n_paths >= 3:
+        parts = ax1.violinplot([vals], positions=[1], showmedians=False,
+                               showextrema=False, widths=0.6)
+        for pc in parts["bodies"]:
+            pc.set_facecolor("#5b9bd5")
+            pc.set_alpha(0.45)
+
+    # Puntos individuales por path (con jitter)
+    rng   = np.random.default_rng(42)
+    jitter = rng.uniform(-0.08, 0.08, size=n_paths)
+    ax1.scatter(1 + jitter, vals, color="#5b9bd5", s=60, zorder=5,
+                label=f"CPCV paths (n={n_paths})")
+
+    # Mediana CPCV
+    med = float(np.median(vals))
+    ax1.hlines(med, 0.7, 1.3, colors="#2980b9", linewidth=2,
+               linestyles="--", label=f"Mediana CPCV = {med:.2f}")
+
+    # Hold-out SR
+    ax1.hlines(ho_sr, 0.7, 1.3, colors="#e74c3c", linewidth=2.5,
+               label=f"Hold-out SR = {ho_sr:.2f}")
+    ax1.scatter([1], [ho_sr], color="#e74c3c", s=120, zorder=6, marker="D")
+
+    # IC 90%
+    ax1.fill_between([0.65, 1.35], p5, p95, alpha=0.12, color="#5b9bd5",
+                     label=f"[P5, P95] = [{p5:.2f}, {p95:.2f}]")
+
+    ax1.axhline(0, color="gray", linewidth=0.8, linestyle=":")
+    ax1.set_xticks([1])
+    ax1.set_xticklabels(["CPCV (dev 2024)"])
+    ax1.set_ylabel("Sharpe anualizado OOS")
+    coverage_str = "SI ✓" if in_ci else "NO ✗"
+    ax1.set_title(
+        f"CPCV vs Hold-out\n"
+        f"Hold-out in [P5,P95]: {coverage_str}",
+        fontsize=11
+    )
+    ax1.legend(fontsize=8, loc="upper right")
+    ax1.grid(axis="y", linestyle="--", alpha=0.3)
+    ax1.set_facecolor("#f9f9f9")
+
+    plt.suptitle(
+        "Figura 1 — CPCV: distribución dev-set vs evaluación hold-out",
+        fontsize=13, fontweight="bold"
+    )
+    plt.tight_layout()
+    plt.show()
+
+    print(f"\nCPCV paths SR:  {[f'{v:.3f}' for v in vals]}")
+    print(f"Mediana CPCV:   {med:.3f}")
+    print(f"Hold-out SR:    {ho_sr:.3f}")
+    print(f"[P5, P95]:      [{p5:.3f}, {p95:.3f}]")
+    print(f"Hold-out in IC: {coverage_str}")
+
+    return cpcv_sharpes, ho_sr
+
+
+def wf_vs_holdout_plot(
+    clf,
+    X_wf, y_wf, t1_wf, fwd_ret_wf,
+    X_retrain, y_retrain,
+    X_holdout, fwd_ret_holdout,
+    prices_full=None,
+    dev_start: str = None,
+    n_splits: int = 5,
+    pct_embargo=PCT_EMBARGO,
+):
+    """
+    Figura 2 de tesis: distribución WF rolling sobre dev set vs Sharpe hold-out.
+
+    X_wf debe incluir Q4-2023 + 2024 para que WF tenga warm-up en el primer fold.
+    dev_start: fecha de inicio del dev set "visible" en el gráfico de precios.
+
+    Panel izquierdo: precio SPY con zonas coloreadas.
+    Panel derecho:   violin WF folds + línea hold-out SR.
+
+    Retorna (wf_sharpes: pd.Series, holdout_sr: float).
+    """
+    wf_sharpes = wf_sharpe_dist(
+        clf, X_wf, y_wf, t1_wf, fwd_ret_wf,
+        variant="purge_embargo",
+        n_splits=n_splits,
+        pct_embargo=pct_embargo,
+    )
+    ho_sr = holdout_sharpe(clf, X_retrain, y_retrain, X_holdout, fwd_ret_holdout)
+
+    n_folds = len(wf_sharpes)
+    p5, p95 = float(np.percentile(wf_sharpes, 5)), float(np.percentile(wf_sharpes, 95))
+    in_ci   = p5 <= ho_sr <= p95
+
+    has_prices = prices_full is not None
+    ncols = 2 if has_prices else 1
+    fig, axes = plt.subplots(1, ncols, figsize=(14 if has_prices else 7, 6))
+    if not has_prices:
+        axes = [axes]
+
+    # ── Panel izquierdo: precio con zonas ─────────────────────────────────
+    if has_prices:
+        ax0 = axes[0]
+        ax0.plot(prices_full.index, prices_full["Close"], color="#555", linewidth=0.8)
+
+        wf_start  = dev_start or str(X_wf.index[0].date())
+        dev_ref   = pd.Timestamp(wf_start)
+        wf_mask   = (prices_full.index >= X_wf.index[0]) & (prices_full.index < dev_ref)
+        dev_mask  = (prices_full.index >= dev_ref) & (prices_full.index <= X_wf.index[-1])
+        ret_mask  = (prices_full.index >= X_retrain.index[0]) & (prices_full.index <= X_retrain.index[-1])
+        ho_mask   = (prices_full.index >= X_holdout.index[0]) & (prices_full.index <= X_holdout.index[-1])
+
+        for mask, color, label in [
+            (wf_mask,  "#aaa",    f"Warm-up WF\n{X_wf.index[0].date()}→{dev_ref.date()}"),
+            (dev_mask, "#e06c75", f"Dev set (WF)\n{dev_ref.date()}→{X_wf.index[-1].date()}"),
+            (ret_mask, "#f0a500", f"Retrain\n{X_retrain.index[0].date()}→{X_retrain.index[-1].date()}"),
+            (ho_mask,  "#e74c3c", f"Hold-out\n{X_holdout.index[0].date()}→{X_holdout.index[-1].date()}"),
+        ]:
+            if mask.any():
+                ax0.axvspan(prices_full.index[mask][0], prices_full.index[mask][-1],
+                            alpha=0.18, color=color, label=label)
+
+        ax0.set_title("SPY — Partición temporal (WF)", fontsize=11)
+        ax0.set_ylabel("Precio cierre (USD)")
+        ax0.legend(fontsize=8, loc="upper left")
+        ax0.grid(axis="y", linestyle="--", alpha=0.3)
+
+    # ── Panel derecho: violin WF + hold-out ──────────────────────────────
+    ax1 = axes[-1]
+    vals = wf_sharpes.values
+
+    if n_folds >= 3:
+        parts = ax1.violinplot([vals], positions=[1], showmedians=False,
+                               showextrema=False, widths=0.6)
+        for pc in parts["bodies"]:
+            pc.set_facecolor("#e06c75")
+            pc.set_alpha(0.45)
+
+    rng    = np.random.default_rng(42)
+    jitter = rng.uniform(-0.08, 0.08, size=n_folds)
+    ax1.scatter(1 + jitter, vals, color="#e06c75", s=60, zorder=5,
+                label=f"WF folds (n={n_folds})")
+
+    med = float(np.median(vals))
+    ax1.hlines(med, 0.7, 1.3, colors="#c0392b", linewidth=2,
+               linestyles="--", label=f"Mediana WF = {med:.2f}")
+
+    ax1.hlines(ho_sr, 0.7, 1.3, colors="#e74c3c", linewidth=2.5,
+               label=f"Hold-out SR = {ho_sr:.2f}")
+    ax1.scatter([1], [ho_sr], color="#e74c3c", s=120, zorder=6, marker="D")
+
+    ax1.fill_between([0.65, 1.35], p5, p95, alpha=0.12, color="#e06c75",
+                     label=f"[P5, P95] = [{p5:.2f}, {p95:.2f}]")
+
+    ax1.axhline(0, color="gray", linewidth=0.8, linestyle=":")
+    ax1.set_xticks([1])
+    ax1.set_xticklabels([f"WF rolling (n={n_folds} folds)"])
+    ax1.set_ylabel("Sharpe anualizado OOS")
+    coverage_str = "SI ✓" if in_ci else "NO ✗"
+    ax1.set_title(
+        f"WF vs Hold-out\n"
+        f"Hold-out in [P5,P95]: {coverage_str}",
+        fontsize=11
+    )
+    ax1.legend(fontsize=8, loc="upper right")
+    ax1.grid(axis="y", linestyle="--", alpha=0.3)
+    ax1.set_facecolor("#f9f9f9")
+
+    plt.suptitle(
+        "Figura 2 — WalkForward: distribución dev-set vs evaluación hold-out",
+        fontsize=13, fontweight="bold"
+    )
+    plt.tight_layout()
+    plt.show()
+
+    print(f"\nWF folds SR:    {[f'{v:.3f}' for v in vals]}")
+    print(f"Mediana WF:     {med:.3f}")
+    print(f"Hold-out SR:    {ho_sr:.3f}")
+    print(f"[P5, P95]:      [{p5:.3f}, {p95:.3f}]")
+    print(f"Hold-out in IC: {coverage_str}")
+
+    return wf_sharpes, ho_sr
