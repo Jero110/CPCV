@@ -9,6 +9,7 @@ import pandas as pd
 import matplotlib.pyplot as plt
 import matplotlib.patches as mpatches
 from itertools import combinations
+from scipy.stats import gaussian_kde
 
 from sklearn.base import clone
 from sklearn.model_selection import KFold
@@ -897,3 +898,164 @@ def wf_vs_holdout_plot(
     print(f"Hold-out in IC: {coverage_str}")
 
     return wf_sharpes, ho_sr
+
+
+def _method_vs_holdout_plot(
+    val_sharpes: pd.Series,
+    ho_sr: float,
+    prices_full,
+    timeline_cfg: dict,
+    method_label: str,
+    fig_title: str,
+) -> plt.Figure:
+    """
+    Shared 2-panel figure helper for method-vs-holdout comparison.
+
+    Left panel:  asset price (Close) with colored vertical spans derived from
+                 timeline_cfg.  If prices_full is None or timeline_cfg is empty
+                 the left panel is left blank (just the axes frame).
+    Right panel: KDE violin + individual fold dots + median + IC 90% + hold-out SR.
+
+    Does NOT call plt.show().  Returns the Figure object.
+
+    timeline_cfg keys (all optional):
+        wf_start, dev_start, dev_end,
+        retrain_start, retrain_end,
+        holdout_start, holdout_end
+    """
+    fig, (ax0, ax1) = plt.subplots(1, 2, figsize=(14, 5))
+
+    # ── Left panel: price + colored zones ────────────────────────────────────
+    has_prices = prices_full is not None and len(timeline_cfg) > 0
+    if has_prices:
+        ax0.plot(prices_full.index, prices_full["Close"],
+                 color="#555", linewidth=0.8)
+
+        def _span(start_key, end_key, color, alpha, label):
+            s = timeline_cfg.get(start_key)
+            e = timeline_cfg.get(end_key)
+            if s and e:
+                s_ts = pd.Timestamp(s)
+                e_ts = pd.Timestamp(e)
+                mask = (prices_full.index >= s_ts) & (prices_full.index <= e_ts)
+                if mask.any():
+                    ax0.axvspan(prices_full.index[mask][0],
+                                prices_full.index[mask][-1],
+                                alpha=alpha, color=color, label=label)
+
+        _span("wf_start",      "dev_start",     "#aaaaaa", 0.10, "Warm-up")
+        _span("dev_start",     "dev_end",        "#5b9bd5", 0.10, "Dev set")
+        _span("retrain_start", "retrain_end",    "#f0a500", 0.10, "Retrain")
+        _span("holdout_start", "holdout_end",    "#2ecc71", 0.15, "Hold-out")
+
+        ax0.set_title("SPY — Partición temporal", fontsize=11)
+        ax0.set_ylabel("Precio cierre (USD)")
+        ax0.legend(fontsize=8, loc="upper left")
+        ax0.grid(axis="y", linestyle="--", alpha=0.3)
+    else:
+        ax0.set_visible(False)
+
+    # ── Right panel: distribution + hold-out ─────────────────────────────────
+    vals   = np.asarray(val_sharpes, dtype=float)
+    n_vals = len(vals)
+
+    p5,  p95 = float(np.percentile(vals, 5)),  float(np.percentile(vals, 95))
+    med       = float(np.median(vals))
+    in_ci     = p5 <= ho_sr <= p95
+    coverage_str = "dentro IC" if in_ci else "fuera IC"
+
+    # KDE — vertical filled curve on the right side
+    if n_vals >= 3:
+        kde        = gaussian_kde(vals, bw_method="silverman")
+        y_grid     = np.linspace(vals.min() - 0.5, vals.max() + 0.5, 300)
+        kde_vals   = kde(y_grid)
+        kde_scaled = kde_vals / kde_vals.max() * 0.35   # max width = 0.35 in x-axis
+        ax1.fill_betweenx(y_grid, 1, 1 + kde_scaled,
+                          alpha=0.40, color="#5b9bd5")
+
+    # Individual fold dots (left side of x=1)
+    rng    = np.random.default_rng(42)
+    jitter = rng.uniform(-0.08, 0.08, size=n_vals)
+    ax1.scatter(1 + jitter, vals, color="#5b9bd5", s=30, zorder=5,
+                label=f"{method_label} (n={n_vals})")
+
+    # Median dashed line (red)
+    ax1.hlines(med, 0.85, 1.45, colors="#e74c3c", linewidth=1.8,
+               linestyles="--", label=f"Mediana val = {med:.2f}")
+
+    # IC 90% horizontal band (blue, alpha=0.15)
+    ax1.fill_between([0.85, 1.45], p5, p95, alpha=0.15, color="#5b9bd5",
+                     label=f"IC 90% [{p5:.2f}, {p95:.2f}]")
+
+    # Hold-out SR — green diamond
+    ax1.hlines(ho_sr, 0.85, 1.45, colors="#27ae60", linewidth=2.2,
+               label=f"Hold-out SR = {ho_sr:.2f}")
+    ax1.scatter([1.15], [ho_sr], color="#27ae60", s=12 ** 2,
+                zorder=6, marker="D", label=f"Hold-out ({coverage_str})")
+
+    # y=0 line
+    ax1.axhline(0, color="black", linewidth=0.8, alpha=0.4, linestyle=":")
+
+    ax1.set_xticks([1])
+    ax1.set_xticklabels([method_label])
+    ax1.set_ylabel("Sharpe anualizado OOS")
+    ax1.set_title(
+        f"{method_label} vs Hold-out\nHold-out: {coverage_str}",
+        fontsize=11,
+    )
+    ax1.legend(fontsize=8, loc="upper right")
+    ax1.grid(axis="y", linestyle="--", alpha=0.3)
+    ax1.set_facecolor("#f9f9f9")
+
+    plt.suptitle(fig_title, fontsize=13, fontweight="bold")
+    plt.tight_layout()
+
+    # Summary stats
+    print(f"\nVal SRs:        {[f'{v:.3f}' for v in vals]}")
+    print(f"Mediana val:    {med:.3f}")
+    print(f"Hold-out SR:    {ho_sr:.3f}")
+    print(f"[P5, P95]:      [{p5:.3f}, {p95:.3f}]")
+    print(f"Cobertura:      {coverage_str}")
+
+    return fig
+
+
+def kfold_vs_holdout_plot(
+    clf,
+    X_dev, y_dev, t1_dev, fwd_ret_dev,
+    X_retrain, y_retrain,
+    X_holdout, fwd_ret_holdout,
+    prices_full=None,
+    n_splits=6,
+    pct_embargo=PCT_EMBARGO,
+    variant="purge_embargo",
+    timeline_cfg=None,
+) -> tuple:
+    """
+    Figura 3 de tesis: distribución KFold (purge+embargo) sobre dev set vs
+    Sharpe hold-out.
+
+    Panel izquierdo: precio SPY con zonas coloreadas según timeline_cfg.
+    Panel derecho:   KDE + folds + mediana + IC 90% + hold-out SR.
+
+    Retorna (kf_sharpes: pd.Series, holdout_sr: float).
+    """
+    kf_sharpes = kfold_sharpe_dist(
+        clf, X_dev, y_dev, t1_dev, fwd_ret_dev,
+        variant=variant,
+        n_splits=n_splits,
+        pct_embargo=pct_embargo,
+    )
+    ho_sr = holdout_sharpe(clf, X_retrain, y_retrain, X_holdout, fwd_ret_holdout)
+
+    _method_vs_holdout_plot(
+        val_sharpes=kf_sharpes,
+        ho_sr=ho_sr,
+        prices_full=prices_full,
+        timeline_cfg=timeline_cfg or {},
+        method_label="KFold (purge+embargo)",
+        fig_title="KFold Purged — Distribución validación vs Hold-out",
+    )
+    plt.show()
+
+    return kf_sharpes, ho_sr
