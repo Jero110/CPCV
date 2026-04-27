@@ -168,6 +168,31 @@ def load_data():
     return build_features(prices)
 
 
+def load_data_range(start: str = None, end: str = None, use_crash: bool = False):
+    """
+    Pipeline: download → (crash opcional) → features.
+    Usa START/END del config si no se pasan argumentos.
+    Returns (X, y, t1, prices, fwd_ret).
+    """
+    from cpcv_analysis.config import START as CFG_START, END as CFG_END
+    _start = start or CFG_START
+    _end   = end   or CFG_END
+
+    try:
+        raw = yf.download(TICKER, start=_start, end=_end,
+                          auto_adjust=True, progress=False)
+        if raw is None or raw.empty:
+            raise RuntimeError("yfinance returned empty DataFrame")
+        prices = _normalize_ohlcv(raw)
+    except Exception as exc:
+        raise RuntimeError(f"Failed to download {TICKER} {_start}→{_end}: {exc}") from exc
+
+    if use_crash:
+        prices = inject_crash(prices)
+
+    return build_features(prices)
+
+
 def load_asset(ticker: str, start: str, end: str, use_crash: bool = False):
     """
     Descarga OHLCV de `ticker` en [start, end), construye features.
