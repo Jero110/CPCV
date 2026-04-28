@@ -28,10 +28,6 @@ def _simulate_gbm_segment(
     """
     dt = 1 / 252
     z = rng.standard_normal(n_days)
-    # Normalize shocks per segment so the realised path reflects the intended
-    # regime drift/vol instead of being dominated by one lucky seed.
-    if n_days > 1:
-        z = (z - z.mean()) / (z.std(ddof=0) or 1.0)
     log_returns = (drift - 0.5 * vol ** 2) * dt + vol * np.sqrt(dt) * z
     prices = start_price * np.exp(np.cumsum(log_returns))
     return prices

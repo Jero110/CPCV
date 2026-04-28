@@ -1,0 +1,35 @@
+❯ Soy un estudiante de ciencia de datos, necesito que me ayudes a crear mi nota de datos. La nota de datos sigue este esquema:      
+  INSTRUCCIONES:                                                                                                                    
+                                                                                                                                    
+  Debe redactar una nota de datos o descriptor de datos, como documento mixto, que informe sobre el objetivo, alcance y estructura  
+  de los datos que sustentan la investigación que está realizando.                                                                  
+                                                                                                                                    
+  En el documento, debe describir de manera concisa los datos de la investigación (un conjunto de datos). No incluya ninguna        
+  interpretación o conclusión de los datos, pues solo debe describirlos.  El conjunto de datos puede ser original o estar vinculado 
+   y descrito en un artículo de investigación publicado.                                                                            
+                                                                                                                                    
+  La nota de datos debe prepararse para su publicación en la revista académica Data Science in Science                              
+  (https://www.tandfonline.com/toc/udss20/current)Links to an external site.                                                        
+                                                                                                                                    
+  Debe estar escrito con los siguientes elementos:                                                                                  
+                                                                                                                                    
+  Portada (title page)                                                                                                              
+  Autores                                                                                                                           
+  Título                                                                                                                            
+  Resumen (200 palabras)                                                                                                            
+  Palabras clave                                                                                                                    
+  Texto principal                                                                                                                   
+  Introducción                                                                                                                      
+  Materiales y métodos                                                                                                              
+  Registros de datos                                                                                                                
+  Validación técnica                                                                                                                
+  Notas de uso                                                                                                                      
+  Declaración de disponibilidad de datos                                                                                            
+  Declaración de intereses                                                                                                          
+  Agradecimientos                                                                                                                   
+  ORCID                                                                                                                             
+  Referencias                                                                                                                       
+  El artículo debe incluir figuras y tablas en el texto, correctamente referenciadas y un títulos y descriptores adecuados. Además, 
+   debe cumplir con la Norma sobre Lenguaje claro: ISO 24495-1:2023.. Es con un estilo académico nivel licenciatura. Usa formato    
+  APA para citar, respeta las normas de la RAE y las recomendaciones de Fundéu para escritura con IA. La audiencia de esta nota son 
+   mis sinodales (tiene conocimientos técnicos sobre terminología de ciencia de datos).  

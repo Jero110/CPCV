@@ -23,44 +23,34 @@ def compute_metrics(
     ho_pnl: pd.Series,
 ) -> dict:
     """
-    Calibration metrics comparing a validation distribution against the true hold-out.
+    Compute 6 calibration metrics for one experiment run.
 
-    Returns dict with keys:
-        delta        : mean(val_SRs) - ho_sr
-        bias         : delta / |ho_sr|  (NaN when ho_sr == 0)
-        z_score      : (ho_sr - mean(val_SRs)) / std(val_SRs)  (NaN when n < 2)
-        coverage_90  : 1 if ho_sr in [P5, P95] of val_SRs
-        rank_pct     : fraction of val_SRs <= ho_sr
-        dispersion   : std(val_SRs)
-        delta_maxDD  : maxDD(val_pnl) - maxDD(ho_pnl)
-        pct_positive : fraction of val_SRs > 0
+    Parameters
+    ----------
+    val_sharpes    : Sharpe ratios for each validation fold/path
+    ho_sr          : Sharpe ratio on the true hold-out set
+    val_pnl_concat : Concatenated PnL series across all validation folds/paths
+    ho_pnl         : PnL series on the true hold-out set
+
+    Returns dict with keys: delta_median, coverage_90, rank_pct,
+                             dispersion, delta_maxDD, pct_positive
     """
     if len(val_sharpes) == 0:
         raise ValueError("val_sharpes must not be empty")
-    sharpes = np.asarray(val_sharpes, dtype=float)
+    sharpes = np.asarray(val_sharpes)
 
     p5  = float(np.percentile(sharpes, 5))
     p95 = float(np.percentile(sharpes, 95))
 
-    mu_val = float(np.mean(sharpes))
-    std_val = float(np.std(sharpes, ddof=1)) if len(sharpes) > 1 else float("nan")
-
-    delta = mu_val - float(ho_sr)
-    bias = delta / abs(float(ho_sr)) if abs(float(ho_sr)) > 1e-10 else float("nan")
-    z_score = (
-        (float(ho_sr) - mu_val) / std_val
-        if not np.isnan(std_val) and std_val > 0 else float("nan")
-    )
+    delta_median = float(np.median(sharpes)) - float(ho_sr)
     coverage_90  = int(p5 <= ho_sr <= p95)
     rank_pct     = float(np.mean(sharpes <= ho_sr))
-    dispersion   = std_val if not np.isnan(std_val) else 0.0
+    dispersion   = float(np.std(sharpes))
     delta_maxDD  = _max_drawdown(val_pnl_concat) - _max_drawdown(ho_pnl)
     pct_positive = float(np.mean(sharpes > 0))
 
     return dict(
-        delta=delta,
-        bias=bias,
-        z_score=z_score,
+        delta_median=delta_median,
         coverage_90=coverage_90,
         rank_pct=rank_pct,
         dispersion=dispersion,
