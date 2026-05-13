@@ -1,50 +1,24 @@
 # cpcv_analysis/plots.py
 """
-All plotting functions. Thesis-level minimalist style.
-Each function accepts out_dir and saves a numbered PNG there.
+Plot functions used by full_experiments.ipynb:
+    - plot_split_matrix       — CPCV (N, k) split×group assignment
+    - plot_fold_oos_violins   — OOS Sharpe per fold/split (3 violins)
+    - plot_paths_vs_holdout   — CPCV path distribution + WF/KFold points + hold-out
 """
 import os
 import numpy as np
 import pandas as pd
 import matplotlib.pyplot as plt
-import matplotlib.ticker as mticker
 from matplotlib.lines import Line2D
-from matplotlib.patches import Patch
-from scipy import stats
-from cpcv_analysis.config import FIGSIZE
 
-# ── Global style ───────────────────────────────────────────────────────────────
-BLUE   = "#1a6faf"
-RED    = "#c0392b"
-GRAY   = "#888888"
-LGRAY  = "#e8e8e8"
-BLACK  = "#1a1a1a"
 
+# ── Global style ──────────────────────────────────────────────────────────────
 plt.rcParams.update({
     "figure.facecolor":    "white",
     "axes.facecolor":      "white",
-    "axes.spines.top":     False,
-    "axes.spines.right":   False,
-    "axes.spines.left":    True,
-    "axes.spines.bottom":  True,
-    "axes.edgecolor":      "#cccccc",
-    "axes.linewidth":      0.8,
-    "axes.grid":           True,
-    "grid.color":          LGRAY,
-    "grid.linewidth":      0.5,
-    "grid.alpha":          1.0,
     "font.family":         "sans-serif",
     "font.size":           11,
-    "axes.titlesize":      13,
-    "axes.titleweight":    "bold",
-    "axes.labelsize":      10,
-    "axes.labelcolor":     BLACK,
-    "xtick.color":         GRAY,
-    "ytick.color":         GRAY,
-    "xtick.labelsize":     9,
-    "ytick.labelsize":     9,
     "legend.frameon":      False,
-    "legend.fontsize":     9,
 })
 
 
@@ -56,64 +30,23 @@ def _save(fig, name: str, out_dir: str):
     plt.close(fig)
 
 
-# ── 01 SPY Prices + CPCV group overlay ───────────────────────────────────────
-def plot_spy_prices(prices, crash_start: str, crash_end_idx: int,
-                   X=None, N_groups: int = 6, out_dir="plots/",
-                   highlight_groups_on_price: bool = False):
-    """
-    SPY Close with synthetic crash window shaded and optional CPCV fold overlay.
-    """
-    has_groups = X is not None
-
-    fig, ax_price = plt.subplots(figsize=FIGSIZE if not has_groups else (13, 6))
-
-    # ── Top: price ────────────────────────────────────────────────────────────
-    ax_price.plot(prices.index, prices["Close"], color=BLUE, lw=1.5, zorder=4)
-    ax_price.axvspan(pd.Timestamp(crash_start), prices.index[crash_end_idx],
-                     alpha=0.13, color=RED, label="Synthetic crash window", zorder=2)
-    ax_price.set_title("SPY Daily Close Price — CPCV Group Structure", pad=10)
-    ax_price.set_ylabel("Price (USD)")
-    ax_price.yaxis.set_major_formatter(mticker.FormatStrFormatter("$%.0f"))
-    ax_price.legend(loc="upper left")
-
-    if has_groups:
-        indices   = np.arange(len(X))
-        groups    = np.array_split(indices, N_groups)
-
-        if highlight_groups_on_price:
-            overlay_colors = ["#eef4fa", "#f8fbfd"]
-            for gid, grp in enumerate(groups):
-                start = X.index[grp[0]]
-                end = X.index[grp[-1]]
-                ax_price.axvspan(
-                    start,
-                    end,
-                    color=overlay_colors[gid % len(overlay_colors)],
-                    alpha=0.9,
-                    zorder=0,
-                )
-                midpoint = start + (end - start) / 2
-                ax_price.text(
-                    midpoint,
-                    0.985,
-                    f"Fold {gid + 1}",
-                    transform=ax_price.get_xaxis_transform(),
-                    ha="center",
-                    va="top",
-                    fontsize=8,
-                    color=GRAY,
-                )
-
-        # Vertical dividers between groups
-        for gid in range(1, N_groups):
-            boundary = X.index[groups[gid][0]]
-            ax_price.axvline(boundary, color="#b9c3cc", lw=0.8, ls="-", alpha=0.75, zorder=2)
-
-    fig.tight_layout()
-    _save(fig, "01_spy_prices.png", out_dir)
+def _strip_ax(ax):
+    """Minimal academic axes: top/right spines off, thin remaining spines."""
+    ax.spines["top"].set_visible(False)
+    ax.spines["right"].set_visible(False)
+    ax.spines["left"].set_linewidth(0.6)
+    ax.spines["bottom"].set_linewidth(0.6)
+    ax.tick_params(length=3, width=0.6, labelsize=8)
 
 
-# ── 02 Split Matrix ───────────────────────────────────────────────────────────
+def _bw_jitter_group(ax, pos, arr, rng, marker="o"):
+    """Scatter a group of points with small jitter; filled black markers."""
+    jit = rng.uniform(-0.10, 0.10, size=len(arr))
+    ax.scatter(pos + jit, arr, color="black", s=18, zorder=5,
+               linewidths=0, marker=marker)
+
+
+# ── Split matrix ──────────────────────────────────────────────────────────────
 def plot_split_matrix(split_table: pd.DataFrame, N: int, out_dir="plots/"):
     n_splits = len(split_table)
     matrix   = np.zeros((n_splits, N), dtype=int)
@@ -124,7 +57,6 @@ def plot_split_matrix(split_table: pd.DataFrame, N: int, out_dir="plots/"):
     fig, ax = plt.subplots(figsize=(9, 6))
     ax.imshow(matrix, cmap="Blues", aspect="auto", vmin=0, vmax=1)
 
-    # Grid lines between cells
     for x in range(N + 1):
         ax.axvline(x - 0.5, color="white", lw=1.5)
     for y in range(n_splits + 1):
@@ -138,7 +70,6 @@ def plot_split_matrix(split_table: pd.DataFrame, N: int, out_dir="plots/"):
     ax.set_xlabel("Time group")
     ax.set_ylabel("CV split")
 
-    # Annotation: "TEST" in blue cells
     for i in range(n_splits):
         for j in range(N):
             if matrix[i, j]:
@@ -149,661 +80,102 @@ def plot_split_matrix(split_table: pd.DataFrame, N: int, out_dir="plots/"):
     _save(fig, "02_split_matrix.png", out_dir)
 
 
-def plot_path_example(fold_results: list, path_results: list, N: int,
-                      path_id: int = 0, out_dir="plots/"):
-    """Show the split×group submatrix for one CPCV path example."""
-    if not path_results:
-        return
-
-    path = next((p for p in path_results if p["path_id"] == path_id), None)
-    if path is None:
-        path = path_results[0]
-        path_id = path["path_id"]
-
-    fold_map = {f["fold_id"]: f for f in fold_results}
-    split_ids = path["split_ids"]
-    matrix = np.zeros((len(split_ids), N), dtype=int)
-    row_labels = []
-
-    for i, split_id in enumerate(split_ids):
-        groups = fold_map[split_id]["test_groups"]
-        for g in groups:
-            matrix[i, g] = 1
-        row_labels.append(f"Split {split_id + 1}")
-
-    fig, ax = plt.subplots(figsize=(8, 3.8))
-    ax.imshow(matrix, cmap="Blues", aspect="auto", vmin=0, vmax=1)
-
-    for x in range(N + 1):
-        ax.axvline(x - 0.5, color="white", lw=1.5)
-    for y in range(len(split_ids) + 1):
-        ax.axhline(y - 0.5, color="white", lw=1.5)
-
-    ax.set_xticks(range(N))
-    ax.set_xticklabels([f"G{g + 1}" for g in range(N)], fontsize=10)
-    ax.set_yticks(range(len(split_ids)))
-    ax.set_yticklabels(row_labels, fontsize=9)
-    ax.set_xlabel("Time group")
-    ax.set_ylabel("Splits in path")
-    ax.set_title(
-        f"CPCV Path {path_id + 1} — Split × Group Submatrix\n"
-        f"(Path {path_id + 1} = {', '.join(row_labels)})"
-    )
-
-    for i in range(len(split_ids)):
-        for j in range(N):
-            if matrix[i, j]:
-                ax.text(j, i, "TEST", ha="center", va="center",
-                        fontsize=7, color="white", fontweight="bold")
-
-    ax.grid(False)
-    fig.tight_layout()
-    _save(fig, "02b_path_example.png", out_dir)
-
-
+# ── OOS Sharpe per fold/split (3 violins) ─────────────────────────────────────
 def plot_fold_oos_violins(cpcv_fold_srs, wf_fold_srs, kfold_fold_srs,
                           label: str, out_dir: str = "plots/"):
     """
-    Compare fold-level OOS Sharpe distributions across methods.
-    CPCV contributes split-level Sharpes; WF/KFold contribute fold-level Sharpes.
+    OOS Sharpe ratio per fold/split for each method.
+    CPCV: 15 splits, WF: 3 folds, KFold: 3 folds.
+    Black-and-white publication style.
     """
-    series = [
-        pd.Series(cpcv_fold_srs, dtype=float).dropna(),
-        pd.Series(wf_fold_srs, dtype=float).dropna(),
-        pd.Series(kfold_fold_srs, dtype=float).dropna(),
+    methods = [
+        ("CPCV\n(15 splits)",       cpcv_fold_srs,  1),
+        ("Walk-forward\n(3 folds)", wf_fold_srs,    2),
+        ("KFold\n(3 folds)",        kfold_fold_srs, 3),
     ]
-    names = ["CPCV splits", "WF folds", "KFold folds"]
-    colors = ["#6dbf8b", "#e06c75", "#5b9bd5"]
 
-    fig, ax = plt.subplots(figsize=(10, 5))
-    valid_data = [s.values for s in series if len(s) > 0]
-    valid_pos = [i + 1 for i, s in enumerate(series) if len(s) > 0]
-    if valid_data:
-        parts = ax.violinplot(valid_data, positions=valid_pos, showmeans=False,
-                              showmedians=True, showextrema=True, widths=0.7)
-        for body, pos in zip(parts["bodies"], valid_pos):
-            body.set_facecolor(colors[pos - 1])
-            body.set_alpha(0.45)
-            body.set_edgecolor(colors[pos - 1])
+    fig, ax = plt.subplots(figsize=(5.5, 3.8))
+    rng = np.random.default_rng(0)
 
-        for idx, s in enumerate(series, start=1):
-            if len(s) == 0:
-                continue
-            ax.scatter(np.full(len(s), idx), s.values, color=colors[idx - 1],
-                       s=20, alpha=0.75, zorder=3)
-    ax.axhline(0, color=GRAY, lw=0.8, ls="--")
+    for name, data, pos in methods:
+        arr = np.asarray(data, dtype=float)
+        if len(arr) == 0:
+            continue
+        if len(arr) >= 4:
+            parts = ax.violinplot([arr], positions=[pos], showmedians=False,
+                                  showextrema=False, widths=0.50)
+            for pc in parts["bodies"]:
+                pc.set_facecolor("#dddddd")
+                pc.set_alpha(1.0)
+                pc.set_edgecolor("black")
+                pc.set_linewidth(0.6)
+        _bw_jitter_group(ax, pos, arr, rng)
+        med = float(np.median(arr))
+        ax.hlines(med, pos - 0.25, pos + 0.25, colors="black", lw=1.2, ls="--")
+
+    ax.axhline(0, color="black", ls=":", lw=0.6, zorder=1)
     ax.set_xticks([1, 2, 3])
-    ax.set_xticklabels(names)
-    ax.set_ylabel("OOS Sharpe")
-    ax.set_title(f"OOS Sharpe by validation fold/path component\n{label}")
-    fig.tight_layout()
+    ax.set_xticklabels([m[0] for m in methods], fontsize=8)
+    ax.set_ylabel("OOS Sharpe ratio (annualised)", fontsize=9)
+    ax.set_title(label, fontsize=8, pad=5)
+    _strip_ax(ax)
+    ax.grid(axis="y", lw=0.4, ls=":", color="#cccccc", zorder=0)
+    fig.tight_layout(pad=0.8)
     _save(fig, "03_fold_oos_violins.png", out_dir)
 
 
+# ── CPCV paths + WF/KFold points + hold-out reference ────────────────────────
 def plot_paths_vs_holdout(cpcv_path_srs, wf_sr, kfold_sr, holdout_sr,
                           label: str, out_dir: str = "plots/"):
     """
-    Compare CPCV path-level Sharpes against single-path WF/KFold and holdout.
+    CPCV: distribution of path Sharpes (violin + jittered dots).
+    WF and KFold: single point each — Sharpe of all OOS returns concatenated.
+    Hold-out: horizontal reference line.
+    Black-and-white publication style.
     """
-    cpcv = pd.Series(cpcv_path_srs, dtype=float).dropna()
-    fig, ax = plt.subplots(figsize=(10, 5))
+    cpcv_arr = np.asarray(cpcv_path_srs, dtype=float)
+    rng = np.random.default_rng(0)
 
-    if len(cpcv) > 0:
-        x = np.arange(1, len(cpcv) + 1)
-        ax.bar(x, cpcv.values, color="#6dbf8b", alpha=0.65, label="CPCV paths")
-        ax.plot(x, cpcv.values, color="#4a8f68", lw=1.2, alpha=0.9)
+    fig, ax = plt.subplots(figsize=(6.0, 3.8))
 
-    ref_lines = [
-        (wf_sr, RED, "WF concatenated"),
-        (kfold_sr, BLUE, "KFold concatenated"),
-        (holdout_sr, BLACK, "Holdout"),
-    ]
-    for value, color, name in ref_lines:
-        ax.axhline(float(value), color=color, lw=1.5, ls="--", label=f"{name}: {value:.3f}")
+    # CPCV: light violin + jittered dots
+    if len(cpcv_arr) >= 4:
+        parts = ax.violinplot([cpcv_arr], positions=[1], showmedians=False,
+                              showextrema=False, widths=0.46)
+        for pc in parts["bodies"]:
+            pc.set_facecolor("#dddddd")
+            pc.set_alpha(1.0)
+            pc.set_edgecolor("black")
+            pc.set_linewidth(0.6)
+    _bw_jitter_group(ax, 1, cpcv_arr, rng)
+    med_c = float(np.median(cpcv_arr)) if len(cpcv_arr) else 0.0
+    ax.hlines(med_c, 0.75, 1.27, colors="black", lw=1.2, ls="--")
 
-    ax.axhline(0, color=GRAY, lw=0.8)
-    ax.set_xlabel("CPCV path")
-    ax.set_ylabel("Sharpe")
-    ax.set_title(f"CPCV paths vs single-path holdout estimates\n{label}")
-    if len(cpcv) > 0:
-        ax.set_xticks(np.arange(1, len(cpcv) + 1))
-    ax.legend(loc="best")
-    fig.tight_layout()
-    _save(fig, "04_paths_vs_holdout.png", out_dir)
+    # WF: single point (concat SR)
+    ax.scatter([2], [wf_sr], color="black", s=40, zorder=6, marker="s")
 
+    # KFold: single point (concat SR)
+    ax.scatter([3], [kfold_sr], color="black", s=40, zorder=6, marker="^")
 
-# ── Shared metrics grid ───────────────────────────────────────────────────────
-def _plot_metrics_grid(df: pd.DataFrame, labels: list, filename: str,
-                       suptitle: str, out_dir: str):
-    """
-    3×3 grid of IS vs OOS bar charts. Reused for splits, paths, and comparison.
-    df must have columns: is_sharpe/sharpe, is_accuracy/accuracy, is_f1/f1,
-    is_mean_return_pct/mean_return_pct, is_ann_return_pct/ann_return_pct,
-    is_max_drawdown_pct/max_drawdown_pct, is_hit_ratio/hit_ratio,
-    is_profit_factor/profit_factor, is_volatility_pct/volatility_pct.
-    """
-    panels = [
-        ("is_sharpe",           "sharpe",           "Sharpe Ratio",          "Ann. Sharpe",   False, None),
-        ("is_accuracy",         "accuracy",         "Accuracy",              "Accuracy",       True,  0.5),
-        ("is_f1",               "f1",               "F1 Score",              "F1",             True,  None),
-        ("is_mean_return_pct",  "mean_return_pct",  "Mean Return",           "Mean Ret (%)",  False, None),
-        ("is_ann_return_pct",   "ann_return_pct",   "Annualized Return",     "Ann Ret (%)",   False, None),
-        ("is_max_drawdown_pct", "max_drawdown_pct", "Max Drawdown",          "MDD (%)",       False, None),
-        ("is_hit_ratio",        "hit_ratio",        "Hit Ratio",             "Hit Ratio",      True,  0.5),
-        ("is_profit_factor",    "profit_factor",    "Profit Factor (OOS)",   "Profit Factor", False, 1.0),
-        ("is_volatility_pct",   "volatility_pct",   "Annualized Volatility", "Volatility (%)",False, None),
-    ]
-    fig, axes = plt.subplots(3, 3, figsize=(18, 12))
-    axes = axes.ravel()
+    # Hold-out reference line
+    ax.hlines(holdout_sr, 0.55, 3.65, colors="black", lw=1.6, ls="-", zorder=4)
 
-    for ax, (is_col, oos_col, title, ylabel, pct, baseline) in zip(axes, panels):
-        if is_col == "is_profit_factor":
-            x = np.arange(len(df))
-            w = 0.55
-            ax.bar(x, df[oos_col], w, label="OOS", color=RED, alpha=0.85, zorder=3)
-            ax.axhline(1.0, color=GRAY, ls="--", lw=0.8, zorder=2, label="Breakeven (PF=1)")
-            ax.axhline(0, color=BLACK, lw=0.7)
-            ax.set_xticks(x)
-            ax.set_xticklabels(labels, rotation=45, ha="right", fontsize=8)
-            ax.set_title(title, fontsize=11)
-            ax.set_ylabel(ylabel)
-            ax.text(0.98, 0.97, "IS always = 10\n(model memorises train)",
-                    transform=ax.transAxes, fontsize=7, ha="right", va="top", color=GRAY,
-                    bbox=dict(boxstyle="round,pad=0.3", facecolor="white", edgecolor=LGRAY))
-            ax.legend(fontsize=8)
-        else:
-            _plot_is_oos_bars(ax, df, labels, is_col, oos_col, title, ylabel,
-                              percent_axis=pct, baseline=baseline)
+    ax.axhline(0, color="black", ls=":", lw=0.6, zorder=1)
+    ax.set_xticks([1, 2, 3])
+    ax.set_xticklabels(["CPCV\n(paths)", "Walk-forward\n(concat SR)",
+                         "KFold\n(concat SR)"], fontsize=8)
+    ax.set_ylabel("OOS Sharpe ratio (annualised)", fontsize=9)
+    ax.set_title(label, fontsize=8, pad=5)
 
-    handles, labels_leg = axes[0].get_legend_handles_labels()
-    fig.legend(handles, labels_leg, loc="upper center", ncol=2, frameon=False,
-               bbox_to_anchor=(0.5, 1.005))
-    fig.suptitle(suptitle, y=1.02, fontsize=14, fontweight="bold")
-    fig.tight_layout()
-    _save(fig, filename, out_dir)
-
-
-# ── 03 IS vs OOS per split ────────────────────────────────────────────────────
-def _plot_is_oos_bars(ax, df: pd.DataFrame, x_labels, is_col: str, oos_col: str,
-                      title: str, ylabel: str, percent_axis: bool = False,
-                      baseline: float = None):
-    x = np.arange(len(df))
-    w = 0.38
-    ax.bar(x - w/2, df[is_col],  w, label="IS",  color=BLUE, alpha=0.85, zorder=3)
-    ax.bar(x + w/2, df[oos_col], w, label="OOS", color=RED,  alpha=0.85, zorder=3)
-    ax.axhline(0, color=BLACK, lw=0.7, zorder=2)
-    if baseline is not None:
-        ax.axhline(baseline, color=GRAY, ls="--", lw=0.8, zorder=2)
-    ax.set_xticks(x)
-    ax.set_xticklabels(x_labels, rotation=45, ha="right", fontsize=8)
-    ax.set_title(title, fontsize=11)
-    ax.set_ylabel(ylabel)
-    if percent_axis:
-        ax.yaxis.set_major_formatter(mticker.PercentFormatter(xmax=1, decimals=0))
-
-
-def plot_is_oos_per_split(fold_results: list, out_dir="plots/"):
-    df = pd.DataFrame([{
-        "is_sharpe":           f["is_sharpe"],
-        "sharpe":              f["sharpe"],
-        "is_accuracy":         f["is_accuracy"],
-        "accuracy":            f["accuracy"],
-        "is_f1":               f["is_f1"],
-        "f1":                  f["f1"],
-        "is_mean_return_pct":  f["is_mean_return_pct"],
-        "mean_return_pct":     f["mean_return_pct"],
-        "is_ann_return_pct":   f["is_ann_return_pct"],
-        "ann_return_pct":      f["ann_return_pct"],
-        "is_max_drawdown_pct": f["is_max_drawdown_pct"],
-        "max_drawdown_pct":    f["max_drawdown_pct"],
-        "is_hit_ratio":        f["is_hit_ratio"],
-        "hit_ratio":           f["hit_ratio"],
-        "is_profit_factor":    f["is_profit_factor"],
-        "profit_factor":       f["profit_factor"],
-        "is_volatility_pct":   f["is_volatility_pct"],
-        "volatility_pct":      f["volatility_pct"],
-    } for f in fold_results])
-    labels = [f"S{f['fold_id'] + 1}" for f in fold_results]
-    _plot_metrics_grid(df, labels, "03_is_oos_per_split.png",
-                       "CPCV — Metrics per Split: IS vs OOS", out_dir)
-
-
-def plot_metrics_per_path(path_results: list, out_dir="plots/"):
-    df = pd.DataFrame([{
-        "path":                p["path_id"],
-        "is_sharpe":           p["is_sharpe"],
-        "sharpe":              p["sharpe"],
-        "is_accuracy":         p["is_accuracy"],
-        "accuracy":            p["accuracy"],
-        "is_f1":               p["is_f1"],
-        "f1":                  p["f1"],
-        "is_mean_return_pct":  p["is_mean_return_pct"],
-        "mean_return_pct":     p["mean_return_pct"],
-        "is_ann_return_pct":   p["is_ann_return_pct"],
-        "ann_return_pct":      p["ann_return_pct"],
-        "is_max_drawdown_pct": p["is_max_drawdown_pct"],
-        "max_drawdown_pct":    p["max_drawdown_pct"],
-        "is_hit_ratio":        p["is_hit_ratio"],
-        "hit_ratio":           p["hit_ratio"],
-        "is_profit_factor":    p["is_profit_factor"],
-        "profit_factor":       p["profit_factor"],
-        "is_volatility_pct":   p["is_volatility_pct"],
-        "volatility_pct":      p["volatility_pct"],
-    } for p in path_results])
-    labels = [f"P{p['path_id'] + 1}" for p in path_results]
-    _plot_metrics_grid(df, labels, "04_metrics_per_path.png",
-                       "CPCV — Metrics per Path: IS vs OOS", out_dir)
-
-
-# ── 04 Equity curves per path ─────────────────────────────────────────────────
-def plot_equity_curves(path_results: list, out_dir="plots/"):
-    """Cumulative OOS PnL per path (additive log-return cumsum)."""
-    fig, ax = plt.subplots(figsize=FIGSIZE)
-    palette = [BLUE, RED, "#27ae60", "#8e44ad", "#e67e22",
-               "#2980b9", "#c0392b", "#16a085", "#d35400"]
-    for pr, col in zip(path_results, palette):
-        pnl  = pr["_path_pnl"].sort_index()
-        cum  = pnl.cumsum()          # additive cumulative log-return (no exp blow-up)
-        cum_pct = cum * 100          # express as %
-        ax.plot(cum_pct.index, cum_pct.values, lw=1.5,
-                label=f"Path {pr['path_id'] + 1}  SR={pr['sharpe']:.2f}", color=col)
-    ax.axhline(0, color=GRAY, ls="--", lw=0.8)
-    ax.set_title("CPCV — OOS Equity Curves by Path\n"
-                 "(each path = disjoint time segments covering all groups once)")
-    ax.set_ylabel("Cumulative Log-Return (%)")
-    ax.yaxis.set_major_formatter(mticker.FormatStrFormatter("%.1f%%"))
-    ax.legend(loc="upper left", ncol=2)
-    fig.tight_layout()
-    _save(fig, "04_equity_curves.png", out_dir)
-
-
-# ── 05 Comparison metrics grid ────────────────────────────────────────────────
-def plot_comparison_metrics(comparison_df: pd.DataFrame, out_dir="plots/"):
-    """
-    Same 3×3 grid as splits/paths but for method-level comparison.
-    comparison_df index = method name; columns include IS_SR, OOS_SR, Delta_SR,
-    accuracy, f1, mean_return_pct, ann_return_pct, max_drawdown_pct,
-    hit_ratio, profit_factor, volatility_pct.
-    """
-    df = comparison_df.reset_index().rename(columns={
-        "IS_SR":            "is_sharpe",
-        "OOS_SR":           "sharpe",
-        "accuracy":         "accuracy",
-        "f1":               "f1",
-        "mean_return_pct":  "mean_return_pct",
-        "ann_return_pct":   "ann_return_pct",
-        "max_drawdown_pct": "max_drawdown_pct",
-        "hit_ratio":        "hit_ratio",
-        "profit_factor":    "profit_factor",
-        "volatility_pct":   "volatility_pct",
-    })
-    # For comparison, IS columns are the same as OOS columns (method-level averages)
-    # except Sharpe where we have both IS_SR and OOS_SR.
-    for col in ["accuracy", "f1", "mean_return_pct", "ann_return_pct",
-                "max_drawdown_pct", "hit_ratio", "profit_factor", "volatility_pct"]:
-        df[f"is_{col}"] = df[col]   # no separate IS for these — show same bar
-
-    labels = df["method"].tolist()
-    _plot_metrics_grid(df, labels, "05_comparison_metrics.png",
-                       "All Methods — OOS Metrics Comparison", out_dir)
-
-
-# ── 06 Delta SR ───────────────────────────────────────────────────────────────
-def plot_comparison_delta(comparison_df: pd.DataFrame, out_dir="plots/"):
-    methods = comparison_df.index.tolist()
-    deltas  = comparison_df["Delta_SR"].values
-    colors  = [RED if v > 0 else BLUE for v in deltas]
-    x = np.arange(len(methods))
-    fig, ax = plt.subplots(figsize=(13, 5))
-    bars = ax.bar(x, deltas, color=colors, alpha=0.85, zorder=3)
-    ax.axhline(0, color=BLACK, lw=0.8)
-    for bar, val in zip(bars, deltas):
-        ax.text(bar.get_x() + bar.get_width()/2, bar.get_height() + 0.05,
-                f"{val:.2f}", ha="center", va="bottom", fontsize=8)
-    ax.set_xticks(x)
-    ax.set_xticklabels(methods, rotation=40, ha="right", fontsize=9)
-    ax.set_title("Sharpe Degradation: IS − OOS by Method\n"
-                 "(higher bar = more optimistic bias / overfitting risk)")
-    ax.set_ylabel("ΔSharpe  (IS − OOS)")
-    fig.tight_layout()
-    _save(fig, "06_comparison_delta_sr.png", out_dir)
-
-
-# ── 09 Heatmap ────────────────────────────────────────────────────────────────
-def plot_comparison_heatmap(comparison_df: pd.DataFrame, out_dir="plots/"):
-    cols  = ["IS_SR", "OOS_SR", "Delta_SR", "mean_return_pct", "accuracy", "f1"]
-    labels = ["IS SR", "OOS SR", "ΔSR", "Mean Ret", "Accuracy", "F1"]
-    data  = comparison_df[cols].astype(float)
-    # Normalize per column for color scale (0=worst, 1=best within column)
-    norm  = (data - data.min()) / (data.max() - data.min() + 1e-9)
-    # For Delta_SR lower is better.
-    norm["Delta_SR"] = 1 - norm["Delta_SR"]
-
-    fig, ax = plt.subplots(figsize=(11, 6))
-    im = ax.imshow(norm.values, cmap="Blues", aspect="auto", vmin=0, vmax=1)
-
-    ax.set_xticks(range(len(cols)))
-    ax.set_xticklabels(labels, fontsize=10)
-    ax.set_yticks(range(len(data)))
-    ax.set_yticklabels(data.index, fontsize=9)
-
-    for i in range(len(data)):
-        for j, col in enumerate(cols):
-            val = data.iloc[i][col]
-            txt = f"{val:.3f}" if col in ["IS_SR", "OOS_SR", "Delta_SR"] else \
-                  f"{val:.1%}" if col in ["accuracy", "f1"] else f"{val:.2f}%"
-            color = "white" if norm.values[i, j] > 0.55 else BLACK
-            ax.text(j, i, txt, ha="center", va="center", fontsize=8, color=color)
-
-    ax.set_title("Methods × Metrics — Normalized Heatmap\n"
-                 "(color = normalized score; for ΔSR, lower is better → inverted)")
-    plt.colorbar(im, ax=ax, shrink=0.5, label="Normalized score (higher = better)")
-    ax.grid(False)
-    fig.tight_layout()
-    _save(fig, "09_comparison_heatmap.png", out_dir)
-
-
-# ── 10 OOS Degradation ────────────────────────────────────────────────────────
-def plot_oos_degradation(fold_results: list, all_folds_df: pd.DataFrame = None,
-                         out_dir="plots/"):
-    """
-    IS vs OOS Sharpe scatter with regression line.
-    Uses all_folds_df (all methods × folds) for density like De Prado Fig 11.1.
-    Falls back to fold_results (CPCV only) if all_folds_df not provided.
-    """
-    if all_folds_df is not None and len(all_folds_df) > 5:
-        df = all_folds_df.copy()
-        # Clip extreme IS_SR outliers (beyond 99th percentile) that arise from
-        # near-zero-variance training windows in combinatorial splits.
-        p99_is = np.percentile(df["IS_SR"].abs(), 99)
-        df = df[df["IS_SR"].abs() <= p99_is].copy()
-        x, y = df["IS_SR"].values, df["OOS_SR"].values
-        source = "all methods × common trials"
-    else:
-        from cpcv_analysis.advanced_analysis import oos_degradation
-        df = oos_degradation(fold_results)
-        x, y = df["IS_SR"].values, df["OOS_SR"].values
-        source = "CPCV folds only"
-
-    if len(x) < 3:
-        print("[plots] Not enough data for degradation plot, skipping.")
-        return
-
-    slope, intercept, r, p, se = stats.linregress(x, y)
-    n      = len(x)
-    prob_neg = float(np.mean(y < 0))
-    adj_r2   = max(0.0, r**2 - (1 - r**2) / max(n - 2, 1))
-
-    # Single panel. IS_SR >> OOS_SR in all folds (structural overfitting).
-    # The identity line y=x cannot be shown at scale — instead we draw a
-    # horizontal reference at OOS=IS_mean to make the gap legible, plus
-    # annotate the mean IS vs mean OOS for context.
-    x_margin = (x.max() - x.min()) * 0.1 + 0.5
-    y_margin = (y.max() - y.min()) * 0.15 + 0.5
-    x_lo, x_hi = x.min() - x_margin, x.max() + x_margin
-    y_lo, y_hi = y.min() - y_margin, y.max() + y_margin
-
-    x_line  = np.linspace(x_lo, x_hi, 300)
-    y_line  = slope * x_line + intercept
-    se_pred = se * np.sqrt(1/n + (x_line - x.mean())**2 / np.sum((x - x.mean())**2))
-    ci      = 1.96 * se_pred
-
-    fig, ax = plt.subplots(figsize=(10, 6))
-    ax.scatter(x, y, color=BLUE, alpha=0.6, s=40, zorder=4, label=f"Folds ({source})")
-    ax.plot(x_line, y_line, color=RED, lw=2, zorder=5,
-            label=f"Regression  R²={r**2:.2f}")
-    ax.fill_between(x_line, y_line - ci, y_line + ci, alpha=0.12, color=RED)
-
-    # Horizontal reference: OOS = mean(IS) — shows how far OOS falls below IS
-    ax.axhline(x.mean(), color="#27ae60", ls="--", lw=1.1, zorder=3,
-               label=f"IS mean = {x.mean():.1f}  (identity reference)")
-    ax.axhline(0, color=GRAY, ls=":", lw=0.8, zorder=2, label="OOS = 0")
-
-    # Annotation
-    eq = (f"SR_OOS = {intercept:+.2f} + {slope:.2f}·SR_IS\n"
-          f"adj R² = {adj_r2:.2f}   n = {n}\n"
-          f"Mean IS SR = {x.mean():.2f}  |  Mean OOS SR = {y.mean():.2f}\n"
-          f"Prob[SR_OOS < 0] = {prob_neg:.2f}")
-    ax.text(0.04, 0.97, eq, transform=ax.transAxes, fontsize=9,
-            va="top", ha="left",
-            bbox=dict(boxstyle="round,pad=0.4", facecolor="white", edgecolor=LGRAY))
-
-    ax.set_xlim(x_lo, x_hi)
-    ax.set_ylim(y_lo, y_hi)
-    ax.set_xlabel("Sharpe Ratio — In-Sample (IS)")
-    ax.set_ylabel("Sharpe Ratio — Out-of-Sample (OOS)")
-    ax.set_title("OOS Performance Degradation — IS vs OOS Sharpe Ratio\n"
-                 "(each dot = one method × fold; green line = IS mean = identity would be at y≈IS)",
-                 fontsize=11)
-    ax.legend(loc="lower right", fontsize=8)
-    fig.tight_layout()
-    _save(fig, "10_oos_degradation.png", out_dir)
-
-
-# ── 11 Rank Logits ────────────────────────────────────────────────────────────
-def plot_rank_logits(all_folds_df, out_dir="plots/"):
-    from cpcv_analysis.advanced_analysis import rank_logits
-    logits, prob_overfit, method_names = rank_logits(all_folds_df)
-
-    mu, sigma = stats.norm.fit(logits)
-    x_curve   = np.linspace(logits.min() - 1, logits.max() + 1, 300)
-    y_curve   = stats.norm.pdf(x_curve, mu, sigma)
-
-    fig, ax = plt.subplots(figsize=(9, 5))
-    n_bins = max(15, len(logits) // 5)
-    ax.hist(logits, bins=n_bins, color=BLUE, alpha=0.75, density=True,
-            label="Rank logits", zorder=3)
-    ax.plot(x_curve, y_curve, color=RED, lw=2, label="Fitted normal", zorder=4)
-    ax.axvline(0, color=BLACK, ls="--", lw=1, zorder=5)
-
-    # Shade area to left of 0 (overfit region)
-    mask = x_curve < 0
-    ax.fill_between(x_curve[mask], y_curve[mask], alpha=0.20, color=RED,
-                    label=f"Prob[Overfit] = {prob_overfit:.2f}", zorder=2)
-
-    ax.text(0.97, 0.95, f"Prob[Overfit] = {prob_overfit:.2f}",
-            transform=ax.transAxes, ha="right", va="top", fontsize=11,
-            bbox=dict(boxstyle="round,pad=0.4", facecolor="white", edgecolor=LGRAY))
-
-    ax.set_xlabel("Logit of Rank  λ = log( rank / (N − rank) )")
-    ax.set_ylabel("Density")
-    ax.set_title("Histogram of Rank Logits — Probability of Backtest Overfitting\n"
-                 "(best IS method ranked by OOS in each common trial)")
-    ax.legend()
-    fig.tight_layout()
-    _save(fig, "11_rank_logits.png", out_dir)
-
-
-# ── 12 Leakage comparison ─────────────────────────────────────────────────────
-def plot_leakage_comparison(comparison_clean: pd.DataFrame,
-                            comparison_leaked: pd.DataFrame,
-                            out_dir: str = "plots/"):
-    """
-    Side-by-side bar chart: OOS Sharpe and OOS Accuracy for each method,
-    clean features vs leaked features.
-
-    comparison_clean, comparison_leaked: DataFrames with index=method,
-    columns including OOS_SR and accuracy (output of run_all_methods).
-    """
-    methods = comparison_clean.index.tolist()
-    x = np.arange(len(methods))
-    w = 0.35
-
-    fig, (ax1, ax2) = plt.subplots(1, 2, figsize=(18, 5))
-
-    # Panel 1: OOS Sharpe
-    ax1.bar(x - w/2, comparison_clean["OOS_SR"].values,  w,
-            label="Clean features", color=BLUE, alpha=0.85, zorder=3)
-    ax1.bar(x + w/2, comparison_leaked["OOS_SR"].values, w,
-            label="Leaked features", color=RED,  alpha=0.85, zorder=3)
-    ax1.axhline(0, color=GRAY, lw=0.7)
-    ax1.set_xticks(x)
-    ax1.set_xticklabels(methods, rotation=40, ha="right", fontsize=8)
-    ax1.set_title("OOS Sharpe — Clean vs Leaked Features\n"
-                  "(all methods inflate OOS SR when a future-label feature is present)")
-    ax1.set_ylabel("Ann. Sharpe Ratio (OOS)")
-
-    # Panel 2: OOS Accuracy
-    ax2.bar(x - w/2, comparison_clean["accuracy"].values,  w,
-            label="Clean features", color=BLUE, alpha=0.85, zorder=3)
-    ax2.bar(x + w/2, comparison_leaked["accuracy"].values, w,
-            label="Leaked features", color=RED,  alpha=0.85, zorder=3)
-    ax2.axhline(0.5, color=GRAY, ls="--", lw=0.8, label="Random baseline (50%)")
-    ax2.set_xticks(x)
-    ax2.set_xticklabels(methods, rotation=40, ha="right", fontsize=8)
-    ax2.set_title("OOS Accuracy — Clean vs Leaked Features\n"
-                  "(all methods exploit a leaked feature column present at test time)")
-    ax2.set_ylabel("OOS Accuracy")
-    ax2.yaxis.set_major_formatter(mticker.PercentFormatter(xmax=1, decimals=0))
-
-    fig.suptitle("Scenario C — Feature Leakage Detection\n"
-                 "All methods amplify OOS SR when a future-label feature is present in X",
-                 fontsize=13, fontweight="bold", y=1.02)
     handles = [
-        Patch(facecolor=BLUE, alpha=0.85, label="Clean features"),
-        Patch(facecolor=RED, alpha=0.85, label="Leaked features"),
-        Line2D([0], [0], color=GRAY, ls="--", lw=0.8, label="Random baseline (50%)"),
+        Line2D([0], [0], color="black", lw=1.2, ls="--", label=f"CPCV median $= {med_c:.2f}$"),
+        Line2D([0], [0], color="black", lw=1.6, ls="-",  label=f"Hold-out $= {holdout_sr:.2f}$"),
+        Line2D([0], [0], color="black", lw=0, marker="s", markersize=5, label=f"WF $= {wf_sr:.2f}$"),
+        Line2D([0], [0], color="black", lw=0, marker="^", markersize=5, label=f"KFold $= {kfold_sr:.2f}$"),
     ]
-    fig.legend(handles=handles, loc="center left", bbox_to_anchor=(0.84, 0.5),
-               frameon=True, fontsize=9)
-    fig.tight_layout(rect=(0, 0, 0.82, 1))
-    _save(fig, "12_leakage_comparison.png", out_dir)
-
-
-# ── Debug notebook plots ──────────────────────────────────────────────────────
-
-def plot_temporal_partition(prices: pd.DataFrame,
-                            wf_start: str, dev_start: str, dev_end: str,
-                            retrain_start: str, retrain_end: str,
-                            holdout_start: str, holdout_end: str,
-                            out_dir: str = "resultados/debug/"):
-    fig, ax = plt.subplots(figsize=(13, 5))
-    ax.plot(prices.index, prices["Close"], color=BLACK, lw=0.9, zorder=5)
-    zones = [
-        (wf_start,      dev_start,     "#aaaaaa", 0.13, "Warm-up"),
-        (dev_start,     dev_end,       "#5b9bd5", 0.13, "Dev set"),
-        (retrain_start, retrain_end,   "#f0a500", 0.13, "Retrain"),
-        (holdout_start, holdout_end,   "#2ecc71", 0.18, "Hold-out"),
-    ]
-    for start, end, color, alpha, label in zones:
-        s, e = pd.Timestamp(start), pd.Timestamp(end)
-        mask = (prices.index >= s) & (prices.index <= e)
-        if mask.any():
-            ax.axvspan(prices.index[mask][0], prices.index[mask][-1],
-                       alpha=alpha, color=color, label=label, zorder=2)
-    ax.set_title("SPY — Partición temporal", pad=10)
-    ax.set_ylabel("Precio cierre (USD)")
-    ax.yaxis.set_major_formatter(mticker.FormatStrFormatter("$%.0f"))
-    ax.legend(loc="upper left", fontsize=9)
-    ax.grid(axis="y", linestyle="--", alpha=0.35)
-    fig.tight_layout()
-    _save(fig, "00_temporal_partition.png", out_dir)
-
-
-def plot_split_timelines(splits_info: list, n_obs: int,
-                         out_dir: str = "resultados/debug/"):
-    import matplotlib.patches as mpatches
-    n_splits = len(splits_info)
-    fig, ax = plt.subplots(figsize=(14, max(4, n_splits * 0.55)))
-    bar_h = 0.7
-    for row, s in enumerate(splits_info):
-        y = n_splits - 1 - row
-        bar_colors = ["#3498db"] * n_obs
-        for idx in s["_test_idx"]:
-            bar_colors[idx] = "#e67e22"
-        for idx in s["_purged_idx"]:
-            bar_colors[idx] = "#f1c40f"
-        for idx in s["_embargoed_idx"]:
-            bar_colors[idx] = "#e74c3c"
-        for i, c in enumerate(bar_colors):
-            ax.barh(y, 1, left=i, height=bar_h, color=c, linewidth=0)
-        label = (f"S{s['split_id']}  g{s['test_groups']}  "
-                 f"tr={s['n_train']} te={s['n_test']} "
-                 f"pu={s['n_purged']} em={s['n_embargoed']}")
-        ax.text(-1, y, label, va="center", ha="right", fontsize=7.5, color=BLACK)
-    ax.set_xlim(-0.5, n_obs)
-    ax.set_ylim(-0.6, n_splits - 0.4)
-    ax.set_yticks([])
-    ax.set_xlabel("Observation index", fontsize=9)
-    ax.set_title("CPCV 6,2 — Split timelines  (train / test / purged / embargo)", pad=8)
-    legend_patches = [
-        mpatches.Patch(color="#3498db", label="Train"),
-        mpatches.Patch(color="#e67e22", label="Test"),
-        mpatches.Patch(color="#f1c40f", label="Purged (label overlap)"),
-        mpatches.Patch(color="#e74c3c", label="Embargo"),
-    ]
-    ax.legend(handles=legend_patches, loc="lower right", fontsize=8, ncol=2)
-    fig.tight_layout()
-    _save(fig, "01_split_timelines.png", out_dir)
-
-
-def plot_is_oos_sharpe_per_split(splits_info: list,
-                                  is_by_split: dict,
-                                  oos_by_split: dict,
-                                  out_dir: str = "resultados/debug/"):
-    def _sr(pnl):
-        if len(pnl) < 2 or pnl.std() == 0:
-            return 0.0
-        return float(np.sqrt(252) * pnl.mean() / pnl.std())
-
-    split_ids = [s["split_id"] for s in splits_info]
-    is_srs  = [_sr(is_by_split[sid])  for sid in split_ids]
-    oos_srs = [_sr(oos_by_split[sid]) for sid in split_ids]
-
-    x = np.arange(len(split_ids))
-    w = 0.38
-    fig, ax = plt.subplots(figsize=(14, 5))
-    ax.bar(x - w/2, is_srs,  w, label="IS Sharpe",  color=BLUE, alpha=0.85, zorder=3)
-    ax.bar(x + w/2, oos_srs, w, label="OOS Sharpe", color=RED,  alpha=0.85, zorder=3)
-    ax.axhline(0, color=BLACK, lw=0.8)
-    ax.set_xticks(x)
-    ax.set_xticklabels([f"S{s['split_id']}\ng{s['test_groups']}"
-                        for s in splits_info], fontsize=8)
-    ax.set_title("CPCV — IS vs OOS Sharpe por Split  (Sharpe = √252 · μ/σ concatenados)", pad=8)
-    ax.set_ylabel("Sharpe anualizado")
-    ax.legend(fontsize=9)
-    fig.tight_layout()
-    _save(fig, "02_is_oos_sharpe_per_split.png", out_dir)
-
-
-def plot_path_sharpes_dist(path_sharpes: pd.Series,
-                            cpcv_prod_sharpes: pd.Series = None,
-                            out_dir: str = "resultados/debug/"):
-    from scipy.stats import gaussian_kde as _gkde
-    fig, ax = plt.subplots(figsize=(9, 5))
-    vals = np.asarray(path_sharpes)
-    rng = np.random.default_rng(42)
-
-    jitter = rng.uniform(-0.06, 0.06, size=len(vals))
-    ax.scatter(1 + jitter, vals, color=BLUE, s=55, zorder=5,
-               label=f"Debug paths (n={len(vals)})")
-    if len(vals) >= 3:
-        kde = _gkde(vals, bw_method="silverman")
-        yg  = np.linspace(vals.min() - 0.5, vals.max() + 0.5, 300)
-        kv  = kde(yg)
-        ax.fill_betweenx(yg, 1, 1 + kv / kv.max() * 0.3, alpha=0.30, color=BLUE)
-    med = float(np.median(vals))
-    ax.hlines(med, 0.85, 1.4, colors=BLUE, lw=2, ls="--",
-              label=f"Mediana debug = {med:.3f}")
-
-    if cpcv_prod_sharpes is not None:
-        prod_vals = np.asarray(cpcv_prod_sharpes)
-        jitter2 = rng.uniform(-0.06, 0.06, size=len(prod_vals))
-        ax.scatter(1.6 + jitter2, prod_vals, color=RED, s=55, zorder=5,
-                   label=f"Prod paths (n={len(prod_vals)})")
-        med_p = float(np.median(prod_vals))
-        ax.hlines(med_p, 1.45, 1.8, colors=RED, lw=2, ls="--",
-                  label=f"Mediana prod = {med_p:.3f}")
-        ax.set_xticks([1, 1.6])
-        ax.set_xticklabels(["cpcv_debug", "cpcv_prod"])
-    else:
-        ax.set_xticks([1])
-        ax.set_xticklabels(["CPCV paths"])
-
-    ax.axhline(0, color=GRAY, ls=":", lw=0.8)
-    ax.set_ylabel("Sharpe anualizado OOS")
-    ax.set_title("CPCV — Distribución Sharpes por Path\n"
-                 "(cada punto = 1 path = φ concatenaciones disjuntas)", pad=8)
-    ax.legend(fontsize=9)
-    fig.tight_layout()
-    _save(fig, "03_path_sharpes_dist.png", out_dir)
+    ax.legend(handles=handles, fontsize=7, loc="upper right", frameon=False)
+    ax.set_xlim(0.45, 3.85)
+    _strip_ax(ax)
+    ax.grid(axis="y", lw=0.4, ls=":", color="#cccccc", zorder=0)
+    fig.tight_layout(pad=0.8)
+    _save(fig, "04_paths_vs_holdout.png", out_dir)

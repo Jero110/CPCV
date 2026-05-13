@@ -1,0 +1,4 @@
+method,delta,bias,z_score,coverage_90,rank_pct,dispersion,pct_positive
+cpcv,-1.7128,-0.3665,1.3554,0.35,0.65,1.1628,0.52
+kfold,-1.6686,-0.1337,,0.0,0.6,0.0,0.5
+wf,-1.4204,-0.0535,,0.0,0.6,0.0,0.6
